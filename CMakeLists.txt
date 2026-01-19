@@ -57,6 +57,10 @@ add_subdirectory(${W1TN3SS_PATH} ${CMAKE_BINARY_DIR}/_deps/w1tn3ss)
 
 add_library(rewind_core_lib STATIC
     src/rewind_core/rewind_core.cpp
+    src/rewind_core/address_mapper.cpp
+    src/rewind_core/bn_block_decoder.cpp
+    src/rewind_core/breakpoint_provider.cpp
+    src/rewind_core/worker.cpp
 )
 
 target_include_directories(rewind_core_lib
@@ -76,6 +80,8 @@ add_library(rewind_ui SHARED
     src/rewind_ui/sidebar_widget.cpp
     src/rewind_ui/controls_widget.cpp
     src/rewind_ui/icon_loader.cpp
+    src/rewind_ui/gradient_painter.cpp
+    src/rewind_ui/rewind_settings.cpp
     resources/rewind_icons.qrc
 )
 

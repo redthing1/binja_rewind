@@ -26,6 +26,7 @@ public:
   void set_on_clear_trace(Callback cb) { on_clear_trace_ = std::move(cb); }
 
   void set_controls_enabled(bool enabled);
+  void set_trace_loaded(bool loaded);
 
 private:
   QAction* action_run_start_ = nullptr;

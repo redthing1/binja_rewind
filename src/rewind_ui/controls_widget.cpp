@@ -29,24 +29,24 @@ RewindControlsWidget::RewindControlsWidget(QWidget* parent) : QToolBar(parent) {
   const auto white = getThemeColor(WhiteStandardHighlightColor);
 
   action_play_forward_ =
-      make_action(this, "Play Forward", rewind_ui::make_icon(":/rewind/icons/play.svg", green), "Play forward");
+      make_action(this, "Play Forward", rewind_ui::make_icon(":/rewind/icons/play.svg", green), "Play Forward");
   action_pause_ = make_action(this, "Pause", rewind_ui::make_icon(":/rewind/icons/pause.svg", white), "Pause");
   action_step_in_ =
-      make_action(this, "Step In", rewind_ui::make_icon(":/rewind/icons/arrow-down-to-dot.svg", cyan), "Step in");
+      make_action(this, "Step In", rewind_ui::make_icon(":/rewind/icons/arrow-down-to-dot.svg", cyan), "Step In");
   action_step_over_ =
-      make_action(this, "Step Over", rewind_ui::make_icon(":/rewind/icons/redo-dot.svg", cyan), "Step over");
+      make_action(this, "Step Over", rewind_ui::make_icon(":/rewind/icons/redo-dot.svg", cyan), "Step Over");
   action_step_out_ =
-      make_action(this, "Step Out", rewind_ui::make_icon(":/rewind/icons/arrow-up-from-dot.svg", cyan), "Step out");
+      make_action(this, "Step Out", rewind_ui::make_icon(":/rewind/icons/arrow-up-from-dot.svg", cyan), "Step Out");
   action_step_back_ =
-      make_action(this, "Step Back", rewind_ui::make_icon(":/rewind/icons/undo-dot.svg", red), "Step back");
+      make_action(this, "Step Back", rewind_ui::make_icon(":/rewind/icons/undo-dot.svg", red), "Step Back");
   action_play_backward_ =
-      make_action(this, "Play Backward", rewind_ui::make_icon(":/rewind/icons/play-back.svg", red), "Play backward");
+      make_action(this, "Play Backward", rewind_ui::make_icon(":/rewind/icons/play-back.svg", red), "Play Backward");
   action_run_start_ =
-      make_action(this, "Run to Start", rewind_ui::make_icon(":/rewind/icons/rotate-ccw.svg", red), "Run to start");
+      make_action(this, "Run to Start", rewind_ui::make_icon(":/rewind/icons/rotate-ccw.svg", red), "Run to Start");
   action_load_trace_ =
-      make_action(this, "Load Trace", rewind_ui::make_icon(":/rewind/icons/folder-open.svg", white), "Load trace");
+      make_action(this, "Load Trace", rewind_ui::make_icon(":/rewind/icons/folder-open.svg", white), "Load Trace");
   action_clear_trace_ =
-      make_action(this, "Clear Trace", rewind_ui::make_icon(":/rewind/icons/trash-2.svg", red), "Clear trace");
+      make_action(this, "Clear Trace", rewind_ui::make_icon(":/rewind/icons/trash-2.svg", red), "Clear Trace");
 
   addAction(action_play_forward_);
   addAction(action_pause_);
@@ -78,6 +78,8 @@ RewindControlsWidget::RewindControlsWidget(QWidget* parent) : QToolBar(parent) {
   style_button(action_play_backward_);
   style_button(action_load_trace_);
   style_button(action_clear_trace_);
+
+  set_trace_loaded(false);
 
   connect(action_run_start_, &QAction::triggered, this, [this]() {
     if (on_run_start_) {
@@ -150,4 +152,9 @@ void RewindControlsWidget::set_controls_enabled(bool enabled) {
   action_step_back_->setEnabled(enabled);
   action_play_backward_->setEnabled(enabled);
   action_clear_trace_->setEnabled(enabled);
+}
+
+void RewindControlsWidget::set_trace_loaded(bool loaded) {
+  action_load_trace_->setVisible(!loaded);
+  action_clear_trace_->setVisible(loaded);
 }
