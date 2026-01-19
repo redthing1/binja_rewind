@@ -9,7 +9,7 @@ cross-platform time-travel debugging for binaryninja, powered by [w1tn3ss](https
 # grab submodules
 git submodule update --init --recursive
 # configure
-cmake -G Ninja -B build-release -DBN_API_REVISION=<commit_hash> -DBINJA_QT_VERSION=<qt_ver>
+cmake -G Ninja -B build-release -DBINJA_API_VERSION=<commit_hash> -DBINJA_QT_VERSION=<qt_ver>
 # build
 cmake --build build-release --parallel
 ```
