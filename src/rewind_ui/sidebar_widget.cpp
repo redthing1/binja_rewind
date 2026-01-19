@@ -396,7 +396,7 @@ void RewindSidebarWidget::apply_update(const binja_rewind::ReplayUpdate& update)
 
 RewindSidebarWidgetType::RewindSidebarWidgetType()
     : SidebarWidgetType(
-          rewind_ui::make_pixmap(":/rewind/icons/arrow-left-from-line.svg", SidebarActiveIconColor).toImage(), "Rewind"
+          rewind_ui::make_pixmap(":/rewind/icons/play-back.svg", SidebarActiveIconColor).toImage(), "Rewind"
       ) {}
 
 SidebarWidget* RewindSidebarWidgetType::createWidget(ViewFrame* frame, BinaryViewRef data) {
