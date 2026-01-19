@@ -3,7 +3,9 @@
 #include <QAction>
 #include <QToolButton>
 
+#include "action.h"
 #include "rewind_ui/icon_loader.hpp"
+#include "rewind_ui/rewind_actions.hpp"
 
 namespace {
 
@@ -11,6 +13,14 @@ QAction* make_action(QObject* parent, const QString& text, const QIcon& icon, co
   auto* action = new QAction(icon, text, parent);
   action->setToolTip(tooltip);
   return action;
+}
+
+QString with_keybinding(const QString& label, const QString& action_name) {
+  auto keys = UIAction::getKeyBinding(action_name);
+  if (!keys.isEmpty()) {
+    return label + QString(" (") + keys[0].toString() + ")";
+  }
+  return label;
 }
 
 } // namespace
@@ -28,21 +38,37 @@ RewindControlsWidget::RewindControlsWidget(QWidget* parent) : QToolBar(parent) {
   const auto red = getThemeColor(RedStandardHighlightColor);
   const auto white = getThemeColor(WhiteStandardHighlightColor);
 
-  action_play_forward_ =
-      make_action(this, "Play Forward", rewind_ui::make_icon(":/rewind/icons/play.svg", green), "Play Forward");
-  action_pause_ = make_action(this, "Pause", rewind_ui::make_icon(":/rewind/icons/pause.svg", white), "Pause");
-  action_step_in_ =
-      make_action(this, "Step In", rewind_ui::make_icon(":/rewind/icons/arrow-down-to-dot.svg", cyan), "Step In");
-  action_step_over_ =
-      make_action(this, "Step Over", rewind_ui::make_icon(":/rewind/icons/redo-dot.svg", cyan), "Step Over");
-  action_step_out_ =
-      make_action(this, "Step Out", rewind_ui::make_icon(":/rewind/icons/arrow-up-from-dot.svg", cyan), "Step Out");
-  action_step_back_ =
-      make_action(this, "Step Back", rewind_ui::make_icon(":/rewind/icons/undo-dot.svg", red), "Step Back");
-  action_play_backward_ =
-      make_action(this, "Play Backward", rewind_ui::make_icon(":/rewind/icons/play-back.svg", red), "Play Backward");
-  action_run_start_ =
-      make_action(this, "Run to Start", rewind_ui::make_icon(":/rewind/icons/rotate-ccw.svg", red), "Run to Start");
+  action_play_forward_ = make_action(
+      this, "Play Forward", rewind_ui::make_icon(":/rewind/icons/play.svg", green),
+      with_keybinding("Play Forward", rewind_ui::action_name(rewind_ui::ActionId::Resume))
+  );
+  action_pause_ = make_action(
+      this, "Pause", rewind_ui::make_icon(":/rewind/icons/pause.svg", white),
+      with_keybinding("Pause", rewind_ui::action_name(rewind_ui::ActionId::Pause))
+  );
+  action_step_in_ = make_action(
+      this, "Step In", rewind_ui::make_icon(":/rewind/icons/arrow-down-to-dot.svg", cyan),
+      with_keybinding("Step In", rewind_ui::action_name(rewind_ui::ActionId::StepInto))
+  );
+  action_step_over_ = make_action(
+      this, "Step Over", rewind_ui::make_icon(":/rewind/icons/redo-dot.svg", cyan),
+      with_keybinding("Step Over", rewind_ui::action_name(rewind_ui::ActionId::StepOver))
+  );
+  action_step_out_ = make_action(
+      this, "Step Out", rewind_ui::make_icon(":/rewind/icons/arrow-up-from-dot.svg", cyan),
+      with_keybinding("Step Out", rewind_ui::action_name(rewind_ui::ActionId::StepReturn))
+  );
+  action_step_back_ = make_action(
+      this, "Step Back", rewind_ui::make_icon(":/rewind/icons/undo-dot.svg", red),
+      with_keybinding("Step Back", rewind_ui::action_name(rewind_ui::ActionId::StepIntoBackwards))
+  );
+  action_play_backward_ = make_action(
+      this, "Play Backward", rewind_ui::make_icon(":/rewind/icons/play-back.svg", red),
+      with_keybinding("Play Backward", rewind_ui::action_name(rewind_ui::ActionId::GoBackwards))
+  );
+  action_run_start_ = make_action(
+      this, "Run to Start", rewind_ui::make_icon(":/rewind/icons/rotate-ccw.svg", red), "Run to Start"
+  );
   action_load_trace_ =
       make_action(this, "Load Trace", rewind_ui::make_icon(":/rewind/icons/folder-open.svg", white), "Load Trace");
   action_clear_trace_ =

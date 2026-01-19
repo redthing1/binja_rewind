@@ -20,6 +20,8 @@
 #include "rewind_ui/gradient_painter.hpp"
 #include "rewind_ui/icon_loader.hpp"
 #include "rewind_ui/registers_view.hpp"
+#include "rewind_ui/action_router.hpp"
+#include "rewind_ui/rewind_actions.hpp"
 #include "rewind_ui/rewind_settings.hpp"
 #include "rewind_ui/session_view.hpp"
 #include "rewind_ui/trace_slice_view.hpp"
@@ -49,6 +51,7 @@ RewindSidebarWidget::RewindSidebarWidget(const QString& name, ViewFrame* frame, 
   build_ui();
   setup_worker();
   wire_controls();
+  rewind_ui::RewindActionRouter::refresh_bindings();
   refresh_frontier_setting();
 }
 
@@ -404,6 +407,8 @@ void RewindSidebarWidget::reset_trace_ui() {
   set_position("- / -");
   set_status("Idle");
   m_controls->set_controls_enabled(false);
+  m_trace_loaded = false;
+  m_controls_enabled = false;
   m_last_nav_address.reset();
   if (m_thread_selector) {
     m_thread_selector->clear();
@@ -596,6 +601,8 @@ void RewindSidebarWidget::apply_update(const binja_rewind::ReplayUpdate& update)
   }
 
   m_controls->set_controls_enabled(update.controls_enabled);
+  m_trace_loaded = update.trace_loaded;
+  m_controls_enabled = update.controls_enabled;
 
   refresh_frontier_setting();
 
@@ -605,6 +612,73 @@ void RewindSidebarWidget::apply_update(const binja_rewind::ReplayUpdate& update)
   update_trace_slice(update);
   update_session_view(update);
   update_navigation(update);
+}
+
+bool RewindSidebarWidget::can_handle_action(const QString& action_name, const UIActionContext& context) const {
+  if (!m_worker || !m_trace_loaded || !m_controls_enabled) {
+    return false;
+  }
+  if (!context.binaryView) {
+    return false;
+  }
+  if (m_data && context.binaryView != m_data) {
+    return false;
+  }
+  if (action_name.isEmpty()) {
+    return false;
+  }
+  return true;
+}
+
+bool RewindSidebarWidget::handle_action(const QString& action_name, const UIActionContext& context) {
+  if (!can_handle_action(action_name, context)) {
+    return false;
+  }
+  if (!m_worker) {
+    return false;
+  }
+
+  auto action_id = rewind_ui::action_id_from_name(action_name);
+  if (!action_id.has_value()) {
+    return false;
+  }
+
+  switch (*action_id) {
+  case rewind_ui::ActionId::Resume:
+    m_worker->run_forward();
+    return true;
+  case rewind_ui::ActionId::GoBackwards:
+    m_worker->run_backward();
+    return true;
+  case rewind_ui::ActionId::StepInto:
+    m_worker->step_instruction();
+    return true;
+  case rewind_ui::ActionId::StepIntoBackwards:
+    m_worker->step_instruction_backward();
+    return true;
+  case rewind_ui::ActionId::StepOver:
+    m_worker->step_over();
+    return true;
+  case rewind_ui::ActionId::StepOverBackwards:
+    m_worker->step_over_backward();
+    return true;
+  case rewind_ui::ActionId::StepReturn:
+    m_worker->step_out();
+    return true;
+  case rewind_ui::ActionId::StepReturnBackwards:
+    m_worker->step_out_backward();
+    return true;
+  case rewind_ui::ActionId::Pause:
+    m_worker->pause();
+    return true;
+  case rewind_ui::ActionId::RunToHere:
+    m_worker->run_to_view_address(context.address, true);
+    return true;
+  case rewind_ui::ActionId::RunBackToHere:
+    m_worker->run_to_view_address(context.address, false);
+    return true;
+  }
+  return false;
 }
 
 RewindSidebarWidgetType::RewindSidebarWidgetType()

@@ -79,6 +79,7 @@ add_library(rewind_ui SHARED
     src/rewind_ui/ui_plugin.cpp
     src/rewind_ui/sidebar_widget.cpp
     src/rewind_ui/controls_widget.cpp
+    src/rewind_ui/action_router.cpp
     src/rewind_ui/icon_loader.cpp
     src/rewind_ui/gradient_painter.cpp
     src/rewind_ui/rewind_settings.cpp

@@ -1058,6 +1058,158 @@ void RewindWorker::step_out() {
   });
 }
 
+void RewindWorker::step_over_backward() {
+  enqueue([this]() {
+    std::string error;
+    if (!ensure_session_ready(error)) {
+      post_error(error);
+      return;
+    }
+    if (!ensure_position(error)) {
+      post_update_status(error);
+      return;
+    }
+    if (!ensure_instruction_position(error)) {
+      post_error(error);
+      return;
+    }
+
+    auto step_backward = [&](std::string& step_error) -> bool {
+      if (!session_->step_instruction_backward()) {
+        step_error = session_->error();
+        return false;
+      }
+      return update_current_step(step_error);
+    };
+
+    if (!step_backward(error)) {
+      post_error(error);
+      return;
+    }
+
+    BinaryNinja::InstructionInfo info{};
+    size_t length = 0;
+    if (!decode_instruction(current_step_.address, info, length, error)) {
+      ReplayUpdate update{};
+      update.status = "Stepped back";
+      fill_update(update);
+      post_update(std::move(update));
+      return;
+    }
+
+    bool is_call = has_branch_type(info, CallDestination) || has_branch_type(info, SystemCall);
+    bool is_return = has_branch_type(info, FunctionReturn);
+
+    if (is_call && !is_return) {
+      ReplayUpdate update{};
+      update.status = "Step over back";
+      fill_update(update);
+      post_update(std::move(update));
+      return;
+    }
+
+    if (!is_return) {
+      ReplayUpdate update{};
+      update.status = "Stepped back";
+      fill_update(update);
+      post_update(std::move(update));
+      return;
+    }
+
+    int depth = 1;
+    size_t guard = 0;
+    while (depth > 0) {
+      if (!step_backward(error)) {
+        post_error(error);
+        return;
+      }
+      if (++guard > kStepGuardLimit) {
+        post_error("step over back exceeded step limit");
+        return;
+      }
+
+      BinaryNinja::InstructionInfo step_info{};
+      size_t step_len = 0;
+      std::string decode_error;
+      if (decode_instruction(current_step_.address, step_info, step_len, decode_error)) {
+        if (has_branch_type(step_info, FunctionReturn)) {
+          depth++;
+        }
+        if (has_branch_type(step_info, CallDestination) || has_branch_type(step_info, SystemCall)) {
+          depth = std::max(0, depth - 1);
+          if (depth == 0) {
+            break;
+          }
+        }
+      }
+    }
+
+    ReplayUpdate update{};
+    update.status = "Step over back";
+    fill_update(update);
+    post_update(std::move(update));
+  });
+}
+
+void RewindWorker::step_out_backward() {
+  enqueue([this]() {
+    std::string error;
+    if (!ensure_session_ready(error)) {
+      post_error(error);
+      return;
+    }
+    if (!ensure_position(error)) {
+      post_update_status(error);
+      return;
+    }
+    if (!ensure_instruction_position(error)) {
+      post_error(error);
+      return;
+    }
+
+    auto step_backward = [&](std::string& step_error) -> bool {
+      if (!session_->step_instruction_backward()) {
+        step_error = session_->error();
+        return false;
+      }
+      return update_current_step(step_error);
+    };
+
+    int depth = 0;
+    size_t guard = 0;
+    for (;;) {
+      if (!step_backward(error)) {
+        post_error(error);
+        return;
+      }
+      if (++guard > kStepGuardLimit) {
+        post_error("step out back exceeded step limit");
+        return;
+      }
+
+      BinaryNinja::InstructionInfo step_info{};
+      size_t step_len = 0;
+      std::string decode_error;
+      if (decode_instruction(current_step_.address, step_info, step_len, decode_error)) {
+        if (has_branch_type(step_info, FunctionReturn)) {
+          depth++;
+        }
+        if (has_branch_type(step_info, CallDestination) || has_branch_type(step_info, SystemCall)) {
+          if (depth == 0) {
+            break;
+          }
+          depth = std::max(0, depth - 1);
+        }
+      }
+    }
+
+    ReplayUpdate update{};
+    update.status = "Step out back";
+    fill_update(update);
+    post_update(std::move(update));
+  });
+}
+
 void RewindWorker::run_to_start() {
   enqueue([this]() {
     std::string error;
@@ -1099,6 +1251,142 @@ void RewindWorker::run_forward() {
 
 void RewindWorker::run_backward() {
   enqueue([this]() { run_flow_impl(false); });
+}
+
+void RewindWorker::run_to_address(uint64_t trace_address, bool forward) {
+  enqueue([this, trace_address, forward]() { run_to_address_impl(trace_address, forward); });
+}
+
+void RewindWorker::run_to_view_address(uint64_t view_address, bool forward) {
+  enqueue([this, view_address, forward]() {
+    if (!mapper_.has_primary_mapping()) {
+      post_error("address mapper unavailable");
+      return;
+    }
+    auto trace_addr = mapper_.view_to_trace(view_address, 1);
+    if (!trace_addr.has_value()) {
+      post_error("address not mapped to trace");
+      return;
+    }
+    run_to_address_impl(*trace_addr, forward);
+  });
+}
+
+void RewindWorker::run_to_address_impl(uint64_t trace_address, bool forward) {
+  std::string error;
+  if (!ensure_session_ready(error)) {
+    post_error(error);
+    return;
+  }
+  if (!ensure_position(error)) {
+    post_update_status(error);
+    return;
+  }
+  if (!fast_cursor_) {
+    post_error("Flow cursor unavailable");
+    return;
+  }
+
+  if (current_step_.address == trace_address) {
+    ReplayUpdate update{};
+    update.status = "At target";
+    fill_update(update);
+    post_update(std::move(update));
+    return;
+  }
+
+  std::unordered_set<uint64_t> targets;
+  targets.insert(trace_address);
+
+  if (!current_step_.is_block) {
+    std::string hit_error;
+    auto immediate = find_breakpoint_in_current_block(targets, forward, hit_error);
+    if (immediate.has_value()) {
+      if (!seek_to_address(*immediate, forward, error)) {
+        post_error(error);
+        return;
+      }
+      ReplayUpdate update{};
+      update.status = "Reached target";
+      fill_update(update);
+      post_update(std::move(update));
+      return;
+    }
+  }
+
+  if (!fast_cursor_->seek(current_thread_, current_step_.sequence)) {
+    post_error(fast_cursor_->error());
+    return;
+  }
+
+  w1::rewind::flow_step step{};
+  if (!fast_cursor_->step_forward(step)) {
+    auto kind = fast_cursor_->error_kind();
+    if (forward && kind == w1::rewind::replay_flow_error_kind::end_of_trace) {
+      post_update_status("End of trace");
+    } else if (!forward && kind == w1::rewind::replay_flow_error_kind::begin_of_trace) {
+      post_update_status("Start of trace");
+    } else {
+      post_error(fast_cursor_->error());
+    }
+    return;
+  }
+
+  cancel_requested_.store(false);
+  run_active_.store(true);
+
+  std::optional<w1::rewind::flow_step> last_step;
+  std::optional<uint64_t> hit_address;
+  std::string stop_reason;
+  for (;;) {
+    if (cancel_requested_.load()) {
+      stop_reason = "Paused";
+      break;
+    }
+
+    bool ok = forward ? fast_cursor_->step_forward(step) : fast_cursor_->step_backward(step);
+    if (!ok) {
+      auto kind = fast_cursor_->error_kind();
+      if (forward && kind == w1::rewind::replay_flow_error_kind::end_of_trace) {
+        stop_reason = "End of trace";
+      } else if (!forward && kind == w1::rewind::replay_flow_error_kind::begin_of_trace) {
+        stop_reason = "Start of trace";
+      } else {
+        stop_reason = fast_cursor_->error();
+      }
+      break;
+    }
+
+    last_step = step;
+    std::string hit_error;
+    auto hit = find_breakpoint_hit(step, targets, forward, hit_error);
+    if (hit.has_value()) {
+      stop_reason = "Reached target";
+      hit_address = hit;
+      break;
+    }
+  }
+
+  run_active_.store(false);
+  cancel_requested_.store(false);
+
+  if (last_step.has_value()) {
+    if (!move_to_sequence(current_thread_, last_step->sequence, error)) {
+      post_error(error);
+      return;
+    }
+    if (hit_address.has_value() && current_step_.address != *hit_address) {
+      if (!seek_to_address(*hit_address, true, error)) {
+        post_error(error);
+        return;
+      }
+    }
+  }
+
+  ReplayUpdate update{};
+  update.status = stop_reason.empty() ? "Stopped" : stop_reason;
+  fill_update(update);
+  post_update(std::move(update));
 }
 
 } // namespace binja_rewind

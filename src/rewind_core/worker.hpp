@@ -97,9 +97,13 @@ public:
   void step_flow_backward();
   void step_over();
   void step_out();
+  void step_over_backward();
+  void step_out_backward();
 
   void run_forward();
   void run_backward();
+  void run_to_address(uint64_t trace_address, bool forward);
+  void run_to_view_address(uint64_t view_address, bool forward);
   void run_to_start();
   void pause();
   void set_gradient_size(size_t size);
@@ -138,6 +142,7 @@ private:
   void step_instruction_impl(bool forward);
   void step_flow_impl(bool forward);
   void run_flow_impl(bool forward);
+  void run_to_address_impl(uint64_t trace_address, bool forward);
   void fill_update(ReplayUpdate& update);
   void fill_registers(ReplayUpdate& update);
   bool sample_gradient(GradientSample& sample);

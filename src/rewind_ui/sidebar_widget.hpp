@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "binaryninjaapi.h"
+#include "action.h"
 #include "sidebarwidget.h"
 #include "uitypes.h"
 #include "viewframe.h"
@@ -53,6 +54,8 @@ class RewindSidebarWidget : public SidebarWidget {
   std::unique_ptr<binja_rewind::RewindWorker> m_worker;
   std::unique_ptr<GradientPainter> m_gradient;
   BinaryNinja::Ref<BinaryNinja::Logger> logger_;
+  bool m_trace_loaded = false;
+  bool m_controls_enabled = false;
 
   void set_status(const QString& text);
   void set_trace_path(const QString& text);
@@ -85,6 +88,9 @@ public:
 
   void notifyFontChanged() override;
   void notifyThemeChanged() override;
+
+  bool can_handle_action(const QString& action_name, const UIActionContext& context) const;
+  bool handle_action(const QString& action_name, const UIActionContext& context);
 };
 
 class RewindSidebarWidgetType : public SidebarWidgetType {
