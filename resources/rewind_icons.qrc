@@ -1,0 +1,19 @@
+<RCC>
+  <qresource prefix="/rewind">
+    <file>icons/arrow-down-to-dot.svg</file>
+    <file>icons/arrow-down-to-line.svg</file>
+    <file>icons/arrow-left-from-line.svg</file>
+    <file>icons/arrow-right-from-line.svg</file>
+    <file>icons/arrow-up-from-dot.svg</file>
+    <file>icons/folder-open.svg</file>
+    <file>icons/pause.svg</file>
+    <file>icons/play-back.svg</file>
+    <file>icons/play-forward.svg</file>
+    <file>icons/play.svg</file>
+    <file>icons/redo-dot.svg</file>
+    <file>icons/rewind.svg</file>
+    <file>icons/rotate-ccw.svg</file>
+    <file>icons/trash-2.svg</file>
+    <file>icons/undo-dot.svg</file>
+  </qresource>
+</RCC>
