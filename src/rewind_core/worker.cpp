@@ -133,7 +133,7 @@ bool RewindWorker::ensure_instruction_position(std::string& error) {
     error = "session not ready";
     return false;
   }
-  if (!session_->step_instruction()) {
+  if (!session_->sync_instruction_position()) {
     error = session_->error();
     return false;
   }
@@ -302,6 +302,10 @@ bool RewindWorker::seek_to_address(uint64_t trace_address, bool forward, std::st
 void RewindWorker::step_instruction_impl(bool forward) {
   std::string error;
   if (!ensure_session_ready(error)) {
+    post_error(error);
+    return;
+  }
+  if (!ensure_instruction_position(error)) {
     post_error(error);
     return;
   }
@@ -915,35 +919,9 @@ void RewindWorker::step_over() {
     }
 
     uint64_t target_address = current_step_.address + length;
-    int depth = 1;
-    size_t guard = 0;
-    for (;;) {
-      if (!step_forward(error)) {
-        post_error(error);
-        return;
-      }
-      if (++guard > kStepGuardLimit) {
-        post_error("step over exceeded step limit");
-        return;
-      }
-
-      BinaryNinja::InstructionInfo step_info{};
-      size_t step_len = 0;
-      std::string decode_error;
-      if (decode_instruction(current_step_.address, step_info, step_len, decode_error)) {
-        if (has_branch_type(step_info, CallDestination) || has_branch_type(step_info, SystemCall)) {
-          depth++;
-        }
-        if (has_branch_type(step_info, FunctionReturn)) {
-          if (depth > 0) {
-            depth--;
-          }
-        }
-      }
-
-      if (depth == 0 && current_step_.address == target_address) {
-        break;
-      }
+    if (!seek_to_address(target_address, true, error)) {
+      post_error(error);
+      return;
     }
 
     ReplayUpdate update{};
