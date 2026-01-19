@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -34,6 +35,28 @@ struct RegisterValue {
   bool known = false;
 };
 
+struct TraceSummary {
+  std::string arch;
+  std::string os;
+  std::string abi;
+  std::string cpu;
+  uint16_t trace_version = 0;
+  bool has_blocks = false;
+  bool has_registers = false;
+  bool has_memory_access = false;
+  bool has_memory_values = false;
+  bool has_stack_snapshot = false;
+  uint64_t thread_count = 0;
+  uint64_t module_count = 0;
+};
+
+struct TraceModule {
+  std::string path;
+  uint64_t base = 0;
+  uint64_t size = 0;
+  uint32_t permissions = 0;
+};
+
 struct ReplayUpdate {
   std::string status;
   std::string trace_path;
@@ -51,6 +74,10 @@ struct ReplayUpdate {
   std::vector<RegisterValue> registers;
   std::vector<uint64_t> past_addresses;
   std::vector<uint64_t> future_addresses;
+
+  bool trace_info_changed = false;
+  TraceSummary summary;
+  std::vector<TraceModule> modules;
 };
 
 class RewindWorker {
@@ -135,6 +162,9 @@ private:
   bool trace_loaded_ = false;
   bool controls_enabled_ = false;
   std::vector<ThreadInfo> threads_;
+  TraceSummary trace_summary_{};
+  std::vector<TraceModule> trace_modules_{};
+  bool trace_info_dirty_ = false;
   uint64_t current_thread_ = 0;
   bool has_position_ = false;
   w1::rewind::flow_step current_step_{};

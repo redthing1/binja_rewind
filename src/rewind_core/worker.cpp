@@ -5,6 +5,7 @@
 #include <sstream>
 #include <vector>
 
+#include "w1base/arch_spec.hpp"
 namespace binja_rewind {
 
 namespace {
@@ -159,6 +160,34 @@ bool RewindWorker::open_trace(const std::string& path, std::string& error, std::
   const bool has_registers = has_register_names && has_register_specs;
   auto features = context.features();
 
+  trace_summary_ = TraceSummary{};
+  trace_summary_.trace_version = context.header.version;
+  trace_summary_.arch = std::string(w1::arch::gdb_arch_name(context.header.arch));
+  if (context.target_info.has_value()) {
+    trace_summary_.os = context.target_info->os;
+    trace_summary_.abi = context.target_info->abi;
+    trace_summary_.cpu = context.target_info->cpu;
+  }
+  trace_summary_.has_blocks = features.has_blocks;
+  trace_summary_.has_registers = features.has_registers;
+  trace_summary_.has_memory_access = features.has_memory_access;
+  trace_summary_.has_memory_values = features.has_memory_values;
+  trace_summary_.has_stack_snapshot = features.has_stack_snapshot;
+  trace_summary_.thread_count = context.threads.size();
+  trace_summary_.module_count = context.modules.size();
+
+  trace_modules_.clear();
+  trace_modules_.reserve(context.modules.size());
+  for (const auto& module : context.modules) {
+    TraceModule info{};
+    info.path = module.path;
+    info.base = module.base;
+    info.size = module.size;
+    info.permissions = static_cast<uint32_t>(module.permissions);
+    trace_modules_.push_back(std::move(info));
+  }
+  trace_info_dirty_ = true;
+
   w1::rewind::replay_session_config config{};
   config.trace_path = path;
   config.history_size = 4096;
@@ -228,6 +257,9 @@ void RewindWorker::close_trace() {
   session_.reset();
   fast_cursor_.reset();
   threads_.clear();
+  trace_summary_ = TraceSummary{};
+  trace_modules_.clear();
+  trace_info_dirty_ = true;
   current_thread_ = 0;
   has_position_ = false;
   current_step_ = w1::rewind::flow_step{};
@@ -805,6 +837,12 @@ void RewindWorker::load_trace(const std::string& path) {
       update.status = "Error: " + error;
       update.trace_cleared = true;
       update.controls_enabled = false;
+      if (trace_info_dirty_) {
+        update.trace_info_changed = true;
+        update.summary = trace_summary_;
+        update.modules = trace_modules_;
+        trace_info_dirty_ = false;
+      }
       post_update(std::move(update));
       return;
     }
@@ -816,6 +854,12 @@ void RewindWorker::load_trace(const std::string& path) {
     update.trace_path = trace_path_;
     update.threads = threads_;
     fill_update(update);
+    if (trace_info_dirty_) {
+      update.trace_info_changed = true;
+      update.summary = trace_summary_;
+      update.modules = trace_modules_;
+      trace_info_dirty_ = false;
+    }
     post_update(std::move(update));
   });
 }
@@ -829,6 +873,12 @@ void RewindWorker::clear_trace() {
     update.trace_cleared = true;
     update.controls_enabled = false;
     update.status = "Trace cleared";
+    if (trace_info_dirty_) {
+      update.trace_info_changed = true;
+      update.summary = trace_summary_;
+      update.modules = trace_modules_;
+      trace_info_dirty_ = false;
+    }
     post_update(std::move(update));
   });
 }

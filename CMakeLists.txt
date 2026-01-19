@@ -82,6 +82,10 @@ add_library(rewind_ui SHARED
     src/rewind_ui/icon_loader.cpp
     src/rewind_ui/gradient_painter.cpp
     src/rewind_ui/rewind_settings.cpp
+    src/rewind_ui/elided_label.cpp
+    src/rewind_ui/registers_view.cpp
+    src/rewind_ui/trace_slice_view.cpp
+    src/rewind_ui/session_view.cpp
     resources/rewind_icons.qrc
 )
 
