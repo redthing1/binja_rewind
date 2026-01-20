@@ -677,6 +677,9 @@ bool RewindSidebarWidget::handle_action(const QString& action_name, const UIActi
   case rewind_ui::ActionId::RunBackToHere:
     m_worker->run_to_view_address(context.address, false);
     return true;
+  case rewind_ui::ActionId::DefineFunctionsFromTrace:
+    m_worker->define_functions_from_trace();
+    return true;
   }
   return false;
 }

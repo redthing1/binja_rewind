@@ -1245,6 +1245,136 @@ void RewindWorker::set_gradient_size(size_t size) {
   });
 }
 
+void RewindWorker::define_functions_from_trace() {
+  enqueue([this]() {
+    std::string error;
+    if (!ensure_session_ready(error)) {
+      post_error(error);
+      return;
+    }
+    if (!mapper_.has_primary_mapping()) {
+      post_error("address mapper unavailable");
+      return;
+    }
+    if (run_active_.load()) {
+      post_error("pause playback before defining functions");
+      return;
+    }
+
+    if (logger_) {
+      logger_->LogInfo("Rewind: scanning trace for function candidates");
+    }
+    post_update_status("Scanning trace for functions...");
+
+    w1::rewind::replay_flow_cursor_config cfg{};
+    cfg.trace_path = trace_path_;
+    cfg.index_path = session_->resolved_index_path();
+    cfg.history_size = 1;
+    cfg.track_registers = false;
+    cfg.track_memory = false;
+    cfg.context = &session_->context();
+
+    w1::rewind::replay_flow_cursor cursor(cfg);
+    if (!cursor.open()) {
+      post_error(cursor.error());
+      return;
+    }
+
+    const auto& threads = session_->threads();
+    if (threads.empty()) {
+      post_error("trace has no threads");
+      return;
+    }
+
+    std::unordered_set<uint64_t> addresses;
+    size_t steps_scanned = 0;
+    for (const auto& thread : threads) {
+      if (!cursor.seek(thread.thread_id, 0)) {
+        if (logger_) {
+          logger_->LogWarn(
+              "Rewind: scan failed to seek thread %llu: %s", static_cast<unsigned long long>(thread.thread_id),
+              cursor.error().c_str()
+          );
+        }
+        continue;
+      }
+
+      w1::rewind::flow_step step{};
+      while (cursor.step_forward(step)) {
+        ++steps_scanned;
+        auto view_address = mapper_.trace_to_view(step.address, step.size ? step.size : 1);
+        if (view_address.has_value()) {
+          addresses.insert(*view_address);
+        }
+      }
+
+      auto kind = cursor.error_kind();
+      if (kind != w1::rewind::replay_flow_error_kind::end_of_trace) {
+        if (logger_) {
+          logger_->LogWarn(
+              "Rewind: scan halted on thread %llu: %s", static_cast<unsigned long long>(thread.thread_id),
+              cursor.error().c_str()
+          );
+        }
+      }
+    }
+
+    if (addresses.empty()) {
+      post_update_status("No trace addresses mapped to view");
+      return;
+    }
+
+    std::vector<uint64_t> candidates(addresses.begin(), addresses.end());
+    std::sort(candidates.begin(), candidates.end());
+
+    size_t created = 0;
+    size_t skipped = 0;
+    size_t no_segment = 0;
+    bool missing_platform = false;
+
+    BinaryNinja::ExecuteOnMainThreadAndWait([&]() {
+      if (!view_) {
+        return;
+      }
+      auto platform = view_->GetDefaultPlatform();
+      if (!platform) {
+        missing_platform = true;
+        return;
+      }
+
+      auto undo = view_->BeginUndoActions();
+      for (uint64_t address : candidates) {
+        if (!view_->GetSegmentAt(address)) {
+          ++no_segment;
+          continue;
+        }
+        auto funcs = view_->GetAnalysisFunctionsContainingAddress(address);
+        if (!funcs.empty()) {
+          ++skipped;
+          continue;
+        }
+        view_->CreateUserFunction(platform, address);
+        ++created;
+      }
+      view_->ForgetUndoActions(undo);
+    });
+
+    if (missing_platform) {
+      post_error("no platform available to create functions");
+      return;
+    }
+
+    if (logger_) {
+      logger_->LogInfo(
+          "Rewind: function scan complete steps=%zu candidates=%zu created=%zu skipped=%zu no_segment=%zu",
+          steps_scanned, candidates.size(), created, skipped, no_segment
+      );
+    }
+
+    post_update_status("Defined " + std::to_string(created) + " functions from trace");
+  });
+}
+
 void RewindWorker::run_forward() {
   enqueue([this]() { run_flow_impl(true); });
 }

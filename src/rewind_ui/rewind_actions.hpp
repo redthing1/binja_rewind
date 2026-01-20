@@ -20,7 +20,12 @@ enum class ActionId {
   RunToHere,
   RunBackToHere,
   Pause,
+  DefineFunctionsFromTrace,
 };
+
+inline constexpr const char* kDefineFunctionsFromTraceAction = "Define Functions from Trace";
+inline constexpr const char* kDefineFunctionsFromTraceCommand =
+    "Rewind\\Define Functions from Trace";
 
 struct ActionSpec {
   ActionId id;
@@ -28,8 +33,8 @@ struct ActionSpec {
   QKeySequence key;
 };
 
-inline const std::array<ActionSpec, 11>& action_specs() {
-  static const std::array<ActionSpec, 11> specs = {
+inline const std::array<ActionSpec, 12>& action_specs() {
+  static const std::array<ActionSpec, 12> specs = {
       ActionSpec{ActionId::Resume, "Resume", QKeySequence(Qt::Key_F9)},
       ActionSpec{ActionId::GoBackwards, "Go Backwards", QKeySequence(Qt::ShiftModifier | Qt::Key_F9)},
       ActionSpec{ActionId::StepInto, "Step Into", QKeySequence(Qt::Key_F7)},
@@ -44,6 +49,7 @@ inline const std::array<ActionSpec, 11>& action_specs() {
       ActionSpec{ActionId::RunToHere, "Run To Here", QKeySequence(Qt::Key_F4)},
       ActionSpec{ActionId::RunBackToHere, "Run Back To Here", QKeySequence(Qt::ShiftModifier | Qt::Key_F4)},
       ActionSpec{ActionId::Pause, "Pause", QKeySequence(Qt::Key_F12)},
+      ActionSpec{ActionId::DefineFunctionsFromTrace, kDefineFunctionsFromTraceAction, QKeySequence()},
   };
   return specs;
 }

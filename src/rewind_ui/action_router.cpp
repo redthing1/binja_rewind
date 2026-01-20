@@ -160,6 +160,44 @@ void register_action_fallbacks() {
 
 namespace rewind_ui {
 
+bool can_dispatch_action_for_view(const QString& name, BinaryNinja::BinaryView* view) {
+  if (!view) {
+    return false;
+  }
+  if (!is_rewind_action(name)) {
+    return false;
+  }
+  UIContext* context = UIContext::activeContext();
+  if (!context) {
+    return false;
+  }
+  auto* widget = active_rewind_widget(context);
+  if (!widget) {
+    return false;
+  }
+  UIActionContext ctx = build_action_context(widget);
+  if (ctx.binaryView != view) {
+    return false;
+  }
+  return widget->can_handle_action(name, ctx);
+}
+
+bool dispatch_action_for_view(const QString& name, BinaryNinja::BinaryView* view) {
+  if (!can_dispatch_action_for_view(name, view)) {
+    return false;
+  }
+  UIContext* context = UIContext::activeContext();
+  if (!context) {
+    return false;
+  }
+  auto* widget = active_rewind_widget(context);
+  if (!widget) {
+    return false;
+  }
+  UIActionContext ctx = build_action_context(widget);
+  return widget->handle_action(name, ctx);
+}
+
 static RewindActionRouter* g_router = nullptr;
 
 void RewindActionRouter::init() {

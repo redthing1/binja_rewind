@@ -2,7 +2,14 @@
 
 #include "uicontext.h"
 
+namespace BinaryNinja {
+class BinaryView;
+}
+
 namespace rewind_ui {
+
+bool can_dispatch_action_for_view(const QString& name, BinaryNinja::BinaryView* view);
+bool dispatch_action_for_view(const QString& name, BinaryNinja::BinaryView* view);
 
 class RewindActionRouter final : public UIContextNotification {
 public:
