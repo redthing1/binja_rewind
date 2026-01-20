@@ -56,11 +56,14 @@ set(REDLOG_BUILD_TESTS OFF CACHE BOOL "Disable redlog tests" FORCE)
 add_subdirectory(${W1TN3SS_PATH} ${CMAKE_BINARY_DIR}/_deps/w1tn3ss)
 
 add_library(rewind_core_lib STATIC
-    src/rewind_core/rewind_core.cpp
-    src/rewind_core/address_mapper.cpp
-    src/rewind_core/bn_block_decoder.cpp
-    src/rewind_core/breakpoint_provider.cpp
-    src/rewind_core/worker.cpp
+    src/rewind/core/mapping/address_mapper.cpp
+    src/rewind/core/decode/bn_block_decoder.cpp
+    src/rewind/core/decode/instruction_decoder.cpp
+    src/rewind/core/breakpoints/breakpoint_provider.cpp
+    src/rewind/core/update/update_builder.cpp
+    src/rewind/core/functions/trace_function_definer.cpp
+    src/rewind/core/engine/rewind_engine.cpp
+    src/rewind/core/worker/rewind_worker.cpp
 )
 
 target_include_directories(rewind_core_lib
@@ -76,17 +79,18 @@ target_link_libraries(rewind_core_lib
 )
 
 add_library(rewind_ui SHARED
-    src/rewind_ui/ui_plugin.cpp
-    src/rewind_ui/sidebar_widget.cpp
-    src/rewind_ui/controls_widget.cpp
-    src/rewind_ui/action_router.cpp
-    src/rewind_ui/icon_loader.cpp
-    src/rewind_ui/gradient_painter.cpp
-    src/rewind_ui/rewind_settings.cpp
-    src/rewind_ui/elided_label.cpp
-    src/rewind_ui/registers_view.cpp
-    src/rewind_ui/trace_slice_view.cpp
-    src/rewind_ui/session_view.cpp
+    src/rewind/ui/plugin/ui_plugin.cpp
+    src/rewind/ui/widgets/sidebar_widget.cpp
+    src/rewind/ui/widgets/controls_widget.cpp
+    src/rewind/ui/actions/action_router.cpp
+    src/rewind/ui/theme/icon_loader.cpp
+    src/rewind/ui/theme/gradient_painter.cpp
+    src/rewind/ui/settings/rewind_settings.cpp
+    src/rewind/ui/widgets/elided_label.cpp
+    src/rewind/ui/widgets/registers_view.cpp
+    src/rewind/ui/widgets/trace_slice_view.cpp
+    src/rewind/ui/widgets/session_view.cpp
+    src/rewind/ui/controllers/sidebar_controller.cpp
     resources/rewind_icons.qrc
 )
 
@@ -119,6 +123,8 @@ set_target_properties(rewind_ui PROPERTIES
 if(BINJA_REWIND_BUILD_TESTS)
     add_executable(rewind_core_test
         test/rewind_core/test_main.cpp
+        test/rewind_core/path_utils_test.cpp
+        test/rewind_core/permission_format_test.cpp
     )
 
     target_include_directories(rewind_core_test
