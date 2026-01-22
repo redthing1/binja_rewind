@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -16,8 +17,9 @@
 #include "rewind/core/mapping/address_mapper.hpp"
 #include "rewind/core/model/replay_types.hpp"
 #include "rewind/core/update/update_builder.hpp"
-#include "w1rewind/replay/replay_flow_cursor.hpp"
+#include "w1rewind/replay/flow_cursor.hpp"
 #include "w1rewind/replay/replay_session.hpp"
+#include "w1rewind/trace/trace_index.hpp"
 
 namespace binja::rewind::core::engine {
 
@@ -89,6 +91,7 @@ private:
   functions::TraceFunctionDefiner function_definer_{};
 
   std::string trace_path_;
+  std::string trace_index_path_;
   bool trace_loaded_ = false;
   bool controls_enabled_ = false;
   std::vector<model::ThreadInfo> threads_;
@@ -100,8 +103,9 @@ private:
   w1::rewind::flow_step current_step_{};
   size_t gradient_size_ = 8;
 
+  std::shared_ptr<w1::rewind::trace_index> trace_index_;
   std::optional<w1::rewind::replay_session> session_;
-  std::optional<w1::rewind::replay_flow_cursor> fast_cursor_;
+  std::optional<w1::rewind::flow_cursor> fast_cursor_;
 
   std::atomic<bool> run_active_{false};
   std::atomic<bool> cancel_requested_{false};

@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "w1rewind/replay/replay_flow_cursor.hpp"
+#include "w1rewind/replay/flow_cursor.hpp"
 
 namespace binja::rewind::core::decode {
 

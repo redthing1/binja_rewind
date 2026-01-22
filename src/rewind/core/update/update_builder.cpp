@@ -2,7 +2,12 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <memory>
 #include <sstream>
+
+#include "w1rewind/replay/replay_state_applier.hpp"
+#include "w1rewind/replay/stateful_flow_cursor.hpp"
+#include "w1rewind/trace/trace_reader.hpp"
 
 namespace binja::rewind::core::update {
 
@@ -45,23 +50,32 @@ bool UpdateBuilder::sample_gradient(const UpdateContext& ctx, GradientSample& sa
   if (!ctx.session || !ctx.has_position || !ctx.current_step || !ctx.mapper || !ctx.block_decoder || !ctx.trace_path) {
     return false;
   }
+  if (!ctx.trace_index) {
+    return false;
+  }
 
   sample.past.clear();
   sample.future.clear();
   sample.current = ctx.current_step->address;
 
-  w1::rewind::replay_flow_cursor_config cfg{};
-  cfg.trace_path = *ctx.trace_path;
-  cfg.index_path = ctx.session->resolved_index_path();
+  auto stream = std::make_shared<w1::rewind::trace_reader>(*ctx.trace_path);
+
+  w1::rewind::flow_cursor_config cfg{};
+  cfg.stream = stream;
+  cfg.index = ctx.trace_index;
   cfg.history_size = static_cast<uint32_t>(ctx.gradient_size + 1);
-  cfg.track_registers = false;
-  cfg.track_memory = false;
   cfg.context = &ctx.session->context();
 
-  w1::rewind::replay_flow_cursor cursor(cfg);
+  w1::rewind::flow_cursor cursor(cfg);
   if (!cursor.open()) {
     return false;
   }
+
+  w1::rewind::replay_state state;
+  w1::rewind::replay_state_applier applier(ctx.session->context());
+  w1::rewind::stateful_flow_cursor stateful(cursor, applier, state);
+  stateful.configure(ctx.session->context(), false, false);
+
   if (!cursor.seek(ctx.current_thread, ctx.current_step->sequence)) {
     return false;
   }
@@ -71,7 +85,7 @@ bool UpdateBuilder::sample_gradient(const UpdateContext& ctx, GradientSample& sa
     return false;
   }
 
-  w1::rewind::replay_instruction_cursor inst(cursor);
+  w1::rewind::replay_instruction_cursor inst(stateful);
   inst.set_decoder(ctx.block_decoder);
   inst.set_position(*ctx.current_step);
   sample.current = inst.current_step().address;
@@ -84,13 +98,14 @@ bool UpdateBuilder::sample_gradient(const UpdateContext& ctx, GradientSample& sa
     sample.past.push_back(step.address);
   }
 
+  stateful.configure(ctx.session->context(), false, false);
   if (!cursor.seek(ctx.current_thread, ctx.current_step->sequence)) {
     return true;
   }
   if (!cursor.step_forward(flow)) {
     return true;
   }
-  w1::rewind::replay_instruction_cursor inst_fwd(cursor);
+  w1::rewind::replay_instruction_cursor inst_fwd(stateful);
   inst_fwd.set_decoder(ctx.block_decoder);
   inst_fwd.set_position(*ctx.current_step);
   step = inst_fwd.current_step();

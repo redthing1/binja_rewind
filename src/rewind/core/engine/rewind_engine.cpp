@@ -1,9 +1,11 @@
 #include "rewind/core/engine/rewind_engine.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <vector>
 
 #include "w1base/arch_spec.hpp"
+#include "w1rewind/trace/trace_reader.hpp"
 
 namespace binja::rewind::core::engine {
 
@@ -33,6 +35,7 @@ update::UpdateContext RewindEngine::make_update_context() {
   ctx.mapper = &mapper_;
   ctx.block_decoder = &block_decoder_;
   ctx.trace_path = &trace_path_;
+  ctx.trace_index = trace_index_;
   ctx.trace_loaded = trace_loaded_;
   ctx.controls_enabled = controls_enabled_;
   ctx.has_position = has_position_;
@@ -99,6 +102,8 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
   warning.clear();
 
   trace_path_ = path;
+  trace_index_.reset();
+  trace_index_path_.clear();
   w1::rewind::replay_context context;
   if (!w1::rewind::load_replay_context(path, context, error)) {
     return false;
@@ -141,8 +146,24 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
   }
   trace_info_dirty_ = true;
 
+  w1::rewind::trace_index index;
+  w1::rewind::trace_index_options index_options;
+  std::string index_error;
+  std::filesystem::path trace_file(path);
+  std::filesystem::path index_path = w1::rewind::default_trace_index_path(path);
+  if (!w1::rewind::ensure_trace_index(trace_file, index_path, index_options, index, index_error, true)) {
+    error = index_error.empty() ? "failed to load trace index" : index_error;
+    return false;
+  }
+  trace_index_ = std::make_shared<w1::rewind::trace_index>(std::move(index));
+  trace_index_path_ = index_path.string();
+
+  auto session_stream = std::make_shared<w1::rewind::trace_reader>(path);
+
   w1::rewind::replay_session_config config{};
-  config.trace_path = path;
+  config.stream = session_stream;
+  config.index = trace_index_;
+  config.context = std::move(context);
   config.history_size = 4096;
   config.track_registers = has_registers;
   config.track_memory = has_registers && features.track_memory;
@@ -187,17 +208,16 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
     }
   }
 
-  w1::rewind::replay_flow_cursor_config cursor_config{};
-  cursor_config.trace_path = path;
-  cursor_config.index_path = session_->resolved_index_path();
+  auto fast_stream = std::make_shared<w1::rewind::trace_reader>(path);
+  w1::rewind::flow_cursor_config cursor_config{};
+  cursor_config.stream = fast_stream;
+  cursor_config.index = trace_index_;
   cursor_config.history_size = 4096;
-  cursor_config.track_registers = false;
-  cursor_config.track_memory = false;
   cursor_config.context = &session_->context();
 
   fast_cursor_.emplace(cursor_config);
   if (!fast_cursor_->open()) {
-    error = fast_cursor_->error();
+    error = std::string(fast_cursor_->error());
     fast_cursor_.reset();
     return false;
   }
@@ -210,6 +230,8 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
 void RewindEngine::close_trace() {
   session_.reset();
   fast_cursor_.reset();
+  trace_index_.reset();
+  trace_index_path_.clear();
   threads_.clear();
   trace_summary_ = model::TraceSummary{};
   trace_modules_.clear();
@@ -819,16 +841,16 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
   }
 
   if (!fast_cursor_->seek(current_thread_, current_step_.sequence)) {
-    return make_error_update(fast_cursor_->error());
+    return make_error_update(std::string(fast_cursor_->error()));
   }
 
   w1::rewind::flow_step step{};
   if (!fast_cursor_->step_forward(step)) {
     auto kind = fast_cursor_->error_kind();
-    if (kind == w1::rewind::replay_flow_error_kind::end_of_trace) {
+    if (kind == w1::rewind::flow_error_kind::end_of_trace) {
       return make_status_update("End of trace");
     }
-    return make_error_update(fast_cursor_->error());
+    return make_error_update(std::string(fast_cursor_->error()));
   }
 
   cancel_requested_.store(false);
@@ -846,12 +868,12 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
     bool ok = forward ? fast_cursor_->step_forward(step) : fast_cursor_->step_backward(step);
     if (!ok) {
       auto kind = fast_cursor_->error_kind();
-      if (forward && kind == w1::rewind::replay_flow_error_kind::end_of_trace) {
+      if (forward && kind == w1::rewind::flow_error_kind::end_of_trace) {
         stop_reason = "End of trace";
-      } else if (!forward && kind == w1::rewind::replay_flow_error_kind::begin_of_trace) {
+      } else if (!forward && kind == w1::rewind::flow_error_kind::begin_of_trace) {
         stop_reason = "Start of trace";
       } else {
-        stop_reason = fast_cursor_->error();
+        stop_reason = std::string(fast_cursor_->error());
       }
       break;
     }
@@ -928,19 +950,19 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
   }
 
   if (!fast_cursor_->seek(current_thread_, current_step_.sequence)) {
-    return make_error_update(fast_cursor_->error());
+    return make_error_update(std::string(fast_cursor_->error()));
   }
 
   w1::rewind::flow_step step{};
   if (!fast_cursor_->step_forward(step)) {
     auto kind = fast_cursor_->error_kind();
-    if (forward && kind == w1::rewind::replay_flow_error_kind::end_of_trace) {
+    if (forward && kind == w1::rewind::flow_error_kind::end_of_trace) {
       return make_status_update("End of trace");
     }
-    if (!forward && kind == w1::rewind::replay_flow_error_kind::begin_of_trace) {
+    if (!forward && kind == w1::rewind::flow_error_kind::begin_of_trace) {
       return make_status_update("Start of trace");
     }
-    return make_error_update(fast_cursor_->error());
+    return make_error_update(std::string(fast_cursor_->error()));
   }
 
   cancel_requested_.store(false);
@@ -958,12 +980,12 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
     bool ok = forward ? fast_cursor_->step_forward(step) : fast_cursor_->step_backward(step);
     if (!ok) {
       auto kind = fast_cursor_->error_kind();
-      if (forward && kind == w1::rewind::replay_flow_error_kind::end_of_trace) {
+      if (forward && kind == w1::rewind::flow_error_kind::end_of_trace) {
         stop_reason = "End of trace";
-      } else if (!forward && kind == w1::rewind::replay_flow_error_kind::begin_of_trace) {
+      } else if (!forward && kind == w1::rewind::flow_error_kind::begin_of_trace) {
         stop_reason = "Start of trace";
       } else {
-        stop_reason = fast_cursor_->error();
+        stop_reason = std::string(fast_cursor_->error());
       }
       break;
     }
@@ -1030,7 +1052,7 @@ model::ReplayUpdate RewindEngine::define_functions_from_trace(
     progress(make_status_update("Scanning trace for functions..."));
   }
 
-  const auto result = function_definer_.define_functions(*session_, mapper_, view_, trace_path_, logger_);
+  const auto result = function_definer_.define_functions(*session_, trace_index_, mapper_, view_, trace_path_, logger_);
   if (!result.error.empty()) {
     return make_error_update(result.error);
   }

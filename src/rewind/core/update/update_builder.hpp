@@ -2,15 +2,17 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "rewind/core/decode/bn_block_decoder.hpp"
 #include "rewind/core/mapping/address_mapper.hpp"
 #include "rewind/core/model/replay_types.hpp"
-#include "w1rewind/replay/replay_flow_cursor.hpp"
+#include "w1rewind/replay/flow_cursor.hpp"
 #include "w1rewind/replay/replay_instruction_cursor.hpp"
 #include "w1rewind/replay/replay_session.hpp"
+#include "w1rewind/trace/trace_index.hpp"
 
 namespace binja::rewind::core::update {
 
@@ -25,6 +27,7 @@ struct UpdateContext {
   const mapping::AddressMapper* mapper = nullptr;
   decode::BnBlockDecoder* block_decoder = nullptr;
   const std::string* trace_path = nullptr;
+  std::shared_ptr<w1::rewind::trace_index> trace_index;
   bool trace_loaded = false;
   bool controls_enabled = false;
   bool has_position = false;

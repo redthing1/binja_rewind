@@ -3,28 +3,34 @@
 #include <algorithm>
 #include <unordered_set>
 
-#include "w1rewind/replay/replay_flow_cursor.hpp"
+#include "w1rewind/replay/flow_cursor.hpp"
+#include "w1rewind/trace/trace_reader.hpp"
 
 namespace binja::rewind::core::functions {
 
 DefineFunctionsResult TraceFunctionDefiner::define_functions(
-    const w1::rewind::replay_session& session, const mapping::AddressMapper& mapper,
-    const BinaryNinja::Ref<BinaryNinja::BinaryView>& view, const std::string& trace_path,
-    const BinaryNinja::Ref<BinaryNinja::Logger>& logger
+    const w1::rewind::replay_session& session, const std::shared_ptr<w1::rewind::trace_index>& index,
+    const mapping::AddressMapper& mapper, const BinaryNinja::Ref<BinaryNinja::BinaryView>& view,
+    const std::string& trace_path, const BinaryNinja::Ref<BinaryNinja::Logger>& logger
 ) const {
   DefineFunctionsResult result{};
 
-  w1::rewind::replay_flow_cursor_config cfg{};
-  cfg.trace_path = trace_path;
-  cfg.index_path = session.resolved_index_path();
+  if (!index) {
+    result.error = "trace index unavailable";
+    return result;
+  }
+
+  auto stream = std::make_shared<w1::rewind::trace_reader>(trace_path);
+
+  w1::rewind::flow_cursor_config cfg{};
+  cfg.stream = stream;
+  cfg.index = index;
   cfg.history_size = 1;
-  cfg.track_registers = false;
-  cfg.track_memory = false;
   cfg.context = &session.context();
 
-  w1::rewind::replay_flow_cursor cursor(cfg);
+  w1::rewind::flow_cursor cursor(cfg);
   if (!cursor.open()) {
-    result.error = cursor.error();
+    result.error = std::string(cursor.error());
     return result;
   }
 
@@ -38,9 +44,10 @@ DefineFunctionsResult TraceFunctionDefiner::define_functions(
   for (const auto& thread : threads) {
     if (!cursor.seek(thread.thread_id, 0)) {
       if (logger) {
+        std::string cursor_error(cursor.error());
         logger->LogWarn(
             "Rewind: scan failed to seek thread %llu: %s", static_cast<unsigned long long>(thread.thread_id),
-            cursor.error().c_str()
+            cursor_error.c_str()
         );
       }
       continue;
@@ -56,11 +63,12 @@ DefineFunctionsResult TraceFunctionDefiner::define_functions(
     }
 
     auto kind = cursor.error_kind();
-    if (kind != w1::rewind::replay_flow_error_kind::end_of_trace) {
+    if (kind != w1::rewind::flow_error_kind::end_of_trace) {
       if (logger) {
+        std::string cursor_error(cursor.error());
         logger->LogWarn(
             "Rewind: scan halted on thread %llu: %s", static_cast<unsigned long long>(thread.thread_id),
-            cursor.error().c_str()
+            cursor_error.c_str()
         );
       }
     }
