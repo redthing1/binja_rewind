@@ -353,7 +353,7 @@ SidebarWidget* RewindSidebarWidgetType::createWidget(ViewFrame* frame, BinaryVie
   return new RewindSidebarWidget("Rewind", frame, data);
 }
 
-SidebarWidgetLocation RewindSidebarWidgetType::defaultLocation() const { return SidebarWidgetLocation::RightBottom; }
+SidebarWidgetLocation RewindSidebarWidgetType::defaultLocation() const { return SidebarWidgetLocation::LeftContent; }
 
 SidebarContextSensitivity RewindSidebarWidgetType::contextSensitivity() const { return PerViewTypeSidebarContext; }
 
