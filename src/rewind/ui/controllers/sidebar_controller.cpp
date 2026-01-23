@@ -23,6 +23,7 @@ SidebarController::SidebarController(SidebarView& view, BinaryViewRef data, View
   }
   setup_worker();
   refresh_frontier_setting();
+  refresh_reverse_history_setting();
 }
 
 SidebarController::~SidebarController() = default;
@@ -52,10 +53,22 @@ void SidebarController::refresh_frontier_setting() {
   }
 }
 
+void SidebarController::refresh_reverse_history_setting() {
+  size_t size = binja::rewind::ui::get_reverse_history_size(data_);
+  if (size == reverse_history_size_) {
+    return;
+  }
+  reverse_history_size_ = size;
+  if (worker_) {
+    worker_->set_reverse_history_size(size);
+  }
+}
+
 void SidebarController::notify_font_changed() { view_.refresh_viewports(); }
 
 void SidebarController::notify_theme_changed() {
   refresh_frontier_setting();
+  refresh_reverse_history_setting();
   view_.refresh_viewports();
 }
 
@@ -238,6 +251,7 @@ void SidebarController::apply_update(const core::model::ReplayUpdate& update) {
   controls_enabled_ = update.controls_enabled;
 
   refresh_frontier_setting();
+  refresh_reverse_history_setting();
 
   update_threads(update.threads, update.thread_id);
   update_position(update);

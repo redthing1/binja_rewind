@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <vector>
 
 #include "w1base/arch_spec.hpp"
@@ -212,7 +213,8 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
   w1::rewind::flow_cursor_config cursor_config{};
   cursor_config.stream = fast_stream;
   cursor_config.index = trace_index_;
-  cursor_config.history_size = 4096;
+  cursor_config.history_size =
+      static_cast<uint32_t>(std::min(fast_history_size_, static_cast<size_t>(std::numeric_limits<uint32_t>::max())));
   cursor_config.context = &session_->context();
 
   fast_cursor_.emplace(cursor_config);
@@ -667,6 +669,18 @@ void RewindEngine::set_gradient_size(size_t size) {
     clamped = 64;
   }
   gradient_size_ = clamped;
+}
+
+void RewindEngine::set_reverse_history_size(size_t size) {
+  size_t clamped = size < 1 ? 1 : size;
+  size_t max_size = static_cast<size_t>(std::numeric_limits<uint32_t>::max());
+  if (clamped > max_size) {
+    clamped = max_size;
+  }
+  fast_history_size_ = clamped;
+  if (fast_cursor_) {
+    fast_cursor_->set_history_size(static_cast<uint32_t>(fast_history_size_));
+  }
 }
 
 std::unordered_set<uint64_t> RewindEngine::collect_breakpoints() const {

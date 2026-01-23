@@ -136,6 +136,10 @@ void RewindWorker::set_gradient_size(size_t size) {
   enqueue([this, size]() { engine_.set_gradient_size(size); });
 }
 
+void RewindWorker::set_reverse_history_size(size_t size) {
+  enqueue([this, size]() { engine_.set_reverse_history_size(size); });
+}
+
 void RewindWorker::define_functions_from_trace() {
   enqueue([this]() {
     auto final_update =

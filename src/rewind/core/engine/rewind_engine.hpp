@@ -49,11 +49,13 @@ public:
   model::ReplayUpdate pause();
   void request_cancel();
   void set_gradient_size(size_t size);
+  void set_reverse_history_size(size_t size);
 
   std::unordered_set<uint64_t> collect_breakpoints() const;
 
 private:
   static constexpr size_t kStepGuardLimit = 1000000;
+  static constexpr size_t kDefaultFastHistorySize = 1u << 16;
 
   static bool has_branch_type(const BinaryNinja::InstructionInfo& info, BNBranchType type);
 
@@ -102,6 +104,7 @@ private:
   bool has_position_ = false;
   w1::rewind::flow_step current_step_{};
   size_t gradient_size_ = 8;
+  size_t fast_history_size_ = kDefaultFastHistorySize;
 
   std::shared_ptr<w1::rewind::trace_index> trace_index_;
   std::optional<w1::rewind::replay_session> session_;

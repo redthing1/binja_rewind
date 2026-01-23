@@ -71,6 +71,7 @@ public:
 private:
   void setup_worker();
   void refresh_frontier_setting();
+  void refresh_reverse_history_setting();
   void apply_update(const core::model::ReplayUpdate& update);
   void update_threads(const std::vector<core::model::ThreadInfo>& threads, uint64_t current_thread);
   void update_position(const core::model::ReplayUpdate& update);
@@ -96,6 +97,7 @@ private:
 
   std::string trace_path_value_;
   size_t frontier_size_ = 8;
+  size_t reverse_history_size_ = 65536;
   std::optional<uint64_t> last_nav_address_;
   std::vector<TraceSliceEntry> trace_entries_;
   bool trace_loaded_ = false;

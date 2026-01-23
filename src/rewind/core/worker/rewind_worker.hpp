@@ -40,6 +40,7 @@ public:
   void run_to_start();
   void pause();
   void set_gradient_size(size_t size);
+  void set_reverse_history_size(size_t size);
   void define_functions_from_trace();
 
 private:
