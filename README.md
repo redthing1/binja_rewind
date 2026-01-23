@@ -13,3 +13,8 @@ cmake -G Ninja -B build-release -DCMAKE_BUILD_TYPE=Release -DBINJA_API_VERSION=<
 # build
 cmake --build build-release --parallel
 ```
+
+on macos, auto-configure:
+```sh
+./scripts/configure_mac.py
+```
