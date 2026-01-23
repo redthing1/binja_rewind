@@ -25,6 +25,8 @@ enum class ActionId {
 
 inline constexpr const char* kDefineFunctionsFromTraceAction = "Define Functions from Trace";
 inline constexpr const char* kDefineFunctionsFromTraceCommand = "Rewind\\Define Functions from Trace";
+inline constexpr const char* kDefineFunctionsFromTraceSelectionAction =
+    "Selection Target\\Rewind\\Define Functions from Trace";
 
 struct ActionSpec {
   ActionId id;

@@ -1,3 +1,4 @@
+#include "action.h"
 #include "binaryninjaapi.h"
 #include "rewind/ui/actions/action_router.hpp"
 #include "rewind/ui/actions/rewind_actions.hpp"
@@ -15,6 +16,7 @@ BN_DECLARE_UI_ABI_VERSION
 BINARYNINJAPLUGIN bool UIPluginInit() {
   binja::rewind::ui::register_settings();
   binja::rewind::ui::RewindActionRouter::init();
+  UIAction::registerAction(binja::rewind::ui::kDefineFunctionsFromTraceSelectionAction);
   PluginCommand::Register(
       binja::rewind::ui::kDefineFunctionsFromTraceCommand, "Define functions for executed trace code",
       [](BinaryView* view) {
