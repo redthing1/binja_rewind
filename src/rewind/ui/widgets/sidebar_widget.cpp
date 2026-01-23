@@ -347,9 +347,7 @@ bool RewindSidebarWidget::handle_action(const QString& action_name, const UIActi
 }
 
 RewindSidebarWidgetType::RewindSidebarWidgetType()
-    : SidebarWidgetType(
-          binja::rewind::ui::make_pixmap(":/rewind/icons/play-back.svg", SidebarActiveIconColor).toImage(), "Rewind"
-      ) {}
+    : SidebarWidgetType(binja::rewind::ui::make_icon_image(":/rewind/icons/play-back.svg"), "Rewind") {}
 
 SidebarWidget* RewindSidebarWidgetType::createWidget(ViewFrame* frame, BinaryViewRef data) {
   return new RewindSidebarWidget("Rewind", frame, data);

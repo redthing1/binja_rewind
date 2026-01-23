@@ -63,4 +63,8 @@ QIcon make_icon(const QString& resource_path, const QColor& color) {
   return icon;
 }
 
+QImage make_icon_image(const QString& resource_path, const QColor& color) {
+  return render_svg_pixmap(load_svg_data(resource_path, color)).toImage();
+}
+
 } // namespace binja::rewind::ui
