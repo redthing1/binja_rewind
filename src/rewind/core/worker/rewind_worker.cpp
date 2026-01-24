@@ -135,9 +135,8 @@ void RewindWorker::run_to_address(uint64_t trace_address, bool forward) {
       return oss.str();
     };
     model::ReplayUpdate seeking{};
-    seeking.status =
-        forward ? ("Seeking to 0x" + to_hex(trace_address) + "...") :
-                  ("Seeking back to 0x" + to_hex(trace_address) + "...");
+    seeking.status = forward ? ("Seeking to 0x" + to_hex(trace_address) + "...")
+                             : ("Seeking back to 0x" + to_hex(trace_address) + "...");
     seeking.status_only = true;
     post_update(std::move(seeking));
     post_update(engine_.run_to_address(trace_address, forward));
@@ -152,9 +151,8 @@ void RewindWorker::run_to_view_address(uint64_t view_address, bool forward) {
       return oss.str();
     };
     model::ReplayUpdate seeking{};
-    seeking.status =
-        forward ? ("Seeking to view 0x" + to_hex(view_address) + "...") :
-                  ("Seeking back to view 0x" + to_hex(view_address) + "...");
+    seeking.status = forward ? ("Seeking to view 0x" + to_hex(view_address) + "...")
+                             : ("Seeking back to view 0x" + to_hex(view_address) + "...");
     seeking.status_only = true;
     post_update(std::move(seeking));
     post_update(engine_.run_to_view_address(view_address, forward));

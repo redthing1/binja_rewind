@@ -396,9 +396,8 @@ bool RewindEngine::seek_to_address(uint64_t trace_address, bool forward, std::st
         }
         if (logger_) {
           logger_->LogDebug(
-              "Rewind: intra-block seek %s to 0x%llx in block 0x%llx steps=%zu",
-              forward ? "forward" : "backward", static_cast<unsigned long long>(trace_address),
-              static_cast<unsigned long long>(block_start), steps_needed
+              "Rewind: intra-block seek %s to 0x%llx in block 0x%llx steps=%zu", forward ? "forward" : "backward",
+              static_cast<unsigned long long>(trace_address), static_cast<unsigned long long>(block_start), steps_needed
           );
         }
         return current_step_.address == trace_address;
@@ -1011,9 +1010,7 @@ RewindEngine::BreakpointResult RewindEngine::find_breakpoint_hit(
 
 model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_set<uint64_t>& breakpoints) {
   const uint64_t cancel_token = cancel_epoch_.load(std::memory_order_relaxed);
-  auto is_cancelled = [this, cancel_token]() {
-    return cancel_epoch_.load(std::memory_order_relaxed) != cancel_token;
-  };
+  auto is_cancelled = [this, cancel_token]() { return cancel_epoch_.load(std::memory_order_relaxed) != cancel_token; };
   std::string error;
   if (!ensure_session_ready(error)) {
     return make_error_update(error);
@@ -1030,10 +1027,9 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
 
   if (logger_) {
     logger_->LogDebug(
-        "Rewind: run %s from seq=%llu addr=0x%llx thread=%llu breakpoints=%zu",
-        forward ? "forward" : "backward", static_cast<unsigned long long>(current_step_.sequence),
-        static_cast<unsigned long long>(current_step_.address), static_cast<unsigned long long>(current_thread_),
-        breakpoints.size()
+        "Rewind: run %s from seq=%llu addr=0x%llx thread=%llu breakpoints=%zu", forward ? "forward" : "backward",
+        static_cast<unsigned long long>(current_step_.sequence), static_cast<unsigned long long>(current_step_.address),
+        static_cast<unsigned long long>(current_thread_), breakpoints.size()
     );
   }
 
@@ -1149,10 +1145,10 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
     const auto seq = last_step.has_value() ? last_step->sequence : current_step_.sequence;
     const auto addr = last_step.has_value() ? last_step->address : current_step_.address;
     logger_->LogDebug(
-        "Rewind: run %s stopped reason='%s' seq=%llu addr=0x%llx hit=0x%llx exact=%s",
-        forward ? "forward" : "backward", stop_reason.empty() ? "stopped" : stop_reason.c_str(),
-        static_cast<unsigned long long>(seq), static_cast<unsigned long long>(addr),
-        static_cast<unsigned long long>(hit_address.value_or(0)), hit_exact ? "true" : "false"
+        "Rewind: run %s stopped reason='%s' seq=%llu addr=0x%llx hit=0x%llx exact=%s", forward ? "forward" : "backward",
+        stop_reason.empty() ? "stopped" : stop_reason.c_str(), static_cast<unsigned long long>(seq),
+        static_cast<unsigned long long>(addr), static_cast<unsigned long long>(hit_address.value_or(0)),
+        hit_exact ? "true" : "false"
     );
   }
 
@@ -1172,9 +1168,7 @@ model::ReplayUpdate RewindEngine::run_backward(const std::unordered_set<uint64_t
 
 model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool forward) {
   const uint64_t cancel_token = cancel_epoch_.load(std::memory_order_relaxed);
-  auto is_cancelled = [this, cancel_token]() {
-    return cancel_epoch_.load(std::memory_order_relaxed) != cancel_token;
-  };
+  auto is_cancelled = [this, cancel_token]() { return cancel_epoch_.load(std::memory_order_relaxed) != cancel_token; };
   std::string error;
   if (!ensure_session_ready(error)) {
     return make_error_update(error);
