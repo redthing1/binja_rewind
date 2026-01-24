@@ -52,6 +52,7 @@ set(W1_ENABLE_DEV_TOOLS OFF CACHE BOOL "Disable w1tn3ss dev tooling" FORCE)
 set(W1_EXPORT_COMPILE_COMMANDS OFF CACHE BOOL "Disable w1tn3ss compile commands export" FORCE)
 set(REDLOG_BUILD_EXAMPLES OFF CACHE BOOL "Disable redlog examples" FORCE)
 set(REDLOG_BUILD_TESTS OFF CACHE BOOL "Disable redlog tests" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "Disable w1tn3ss tests in this build" FORCE)
 
 add_subdirectory(${W1TN3SS_PATH} ${CMAKE_BINARY_DIR}/_deps/w1tn3ss)
 
@@ -62,6 +63,8 @@ add_library(rewind_core_lib STATIC
     src/rewind/core/breakpoints/breakpoint_provider.cpp
     src/rewind/core/update/update_builder.cpp
     src/rewind/core/functions/trace_function_definer.cpp
+    src/rewind/core/engine/breakpoint_matcher.cpp
+    src/rewind/core/engine/run_loop.cpp
     src/rewind/core/engine/rewind_engine.cpp
     src/rewind/core/worker/rewind_worker.cpp
 )
@@ -121,10 +124,14 @@ set_target_properties(rewind_ui PROPERTIES
 )
 
 if(BINJA_REWIND_BUILD_TESTS)
+    enable_testing()
+
     add_executable(rewind_core_test
         test/rewind_core/test_main.cpp
         test/rewind_core/path_utils_test.cpp
         test/rewind_core/permission_format_test.cpp
+        test/rewind_core/breakpoint_matcher_test.cpp
+        test/rewind_core/run_loop_test.cpp
     )
 
     target_include_directories(rewind_core_test
@@ -142,6 +149,8 @@ if(BINJA_REWIND_BUILD_TESTS)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test
         OUTPUT_NAME rewind_core_test
     )
+
+    add_test(NAME rewind_core_test COMMAND $<TARGET_FILE:rewind_core_test>)
 endif()
 
 find_program(CLANG_FORMAT NAMES clang-format clang-format-17 clang-format-16)

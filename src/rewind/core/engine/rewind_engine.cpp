@@ -1,4 +1,5 @@
 #include "rewind/core/engine/rewind_engine.hpp"
+#include "rewind/core/engine/run_loop.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -210,14 +211,12 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
   }
 
   auto fast_stream = std::make_shared<w1::rewind::trace_reader>(path);
-  w1::rewind::flow_cursor_config cursor_config{};
-  cursor_config.stream = fast_stream;
-  cursor_config.index = trace_index_;
-  cursor_config.history_size =
-      static_cast<uint32_t>(std::min(fast_history_size_, static_cast<size_t>(std::numeric_limits<uint32_t>::max())));
-  cursor_config.context = &session_->context();
-
-  fast_cursor_.emplace(cursor_config);
+  size_t history_size =
+      std::min(fast_history_size_, static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
+  w1::rewind::record_stream_cursor stream_cursor(fast_stream);
+  w1::rewind::flow_extractor extractor(&session_->context());
+  w1::rewind::history_window history(history_size);
+  fast_cursor_.emplace(std::move(stream_cursor), std::move(extractor), std::move(history), trace_index_);
   if (!fast_cursor_->open()) {
     error = std::string(fast_cursor_->error());
     fast_cursor_.reset();
@@ -314,7 +313,7 @@ bool RewindEngine::seek_to_address(uint64_t trace_address, bool forward, std::st
         block_step.address = block_start;
         block_step.size = it->second.size;
 
-        w1::rewind::replay_decoded_block decoded{};
+        w1::rewind::decoded_block decoded{};
         std::string decode_error;
         if (!block_decoder_.decode_block(context, block_step, decoded, decode_error)) {
           error = decode_error.empty() ? "block decode failed" : decode_error;
@@ -328,12 +327,8 @@ bool RewindEngine::seek_to_address(uint64_t trace_address, bool forward, std::st
         }
 
         auto find_index = [&](uint64_t address, size_t& out_index) {
-          if (address < decoded.address) {
-            return false;
-          }
-          uint64_t offset = address - decoded.address;
           for (size_t i = 0; i < decoded.instructions.size(); ++i) {
-            if (decoded.instructions[i].offset == offset) {
+            if (decoded.instructions[i].address == address) {
               out_index = i;
               return true;
             }
@@ -813,201 +808,6 @@ std::unordered_set<uint64_t> RewindEngine::collect_breakpoints() const {
   return breakpoint_provider_.collect_breakpoints(view_, mapper_);
 }
 
-RewindEngine::BreakpointResult RewindEngine::find_breakpoint_in_current_block(
-    const std::unordered_set<uint64_t>& breakpoints, bool forward, std::string& error
-) {
-  BreakpointResult result{};
-  error.clear();
-  if (breakpoints.empty() || !session_.has_value() || !has_position_) {
-    return result;
-  }
-  const auto& context = session_->context();
-  if (!context.has_blocks()) {
-    return result;
-  }
-  if (current_step_.block_id == 0) {
-    return result;
-  }
-
-  auto it = context.blocks_by_id.find(current_step_.block_id);
-  if (it == context.blocks_by_id.end()) {
-    return result;
-  }
-
-  w1::rewind::flow_step block_step = current_step_;
-  block_step.is_block = true;
-  block_step.address = it->second.address;
-  block_step.size = it->second.size;
-
-  if (block_step.size == 0) {
-    return result;
-  }
-
-  bool candidate = false;
-  uint64_t block_start = block_step.address;
-  uint64_t block_end = block_start + block_step.size;
-  for (const auto& bp : breakpoints) {
-    if (bp >= block_start && bp < block_end) {
-      candidate = true;
-      break;
-    }
-  }
-  if (!candidate) {
-    return result;
-  }
-
-  w1::rewind::replay_decoded_block decoded{};
-  if (!block_decoder_.decode_block(context, block_step, decoded, error)) {
-    if (logger_) {
-      logger_->LogWarn(
-          "Rewind: breakpoint candidate in block 0x%llx decode failed: %s",
-          static_cast<unsigned long long>(block_step.address), error.c_str()
-      );
-    }
-    result.kind = BreakpointResult::Kind::unresolved_block;
-    result.address = block_step.address;
-    return result;
-  }
-
-  size_t current_index = decoded.instructions.size();
-  if (current_step_.is_block) {
-    current_index = forward ? 0 : decoded.instructions.size();
-  } else {
-    for (size_t i = 0; i < decoded.instructions.size(); ++i) {
-      uint64_t addr = decoded.address + decoded.instructions[i].offset;
-      if (addr == current_step_.address) {
-        current_index = i;
-        break;
-      }
-    }
-    if (current_index == decoded.instructions.size()) {
-      return result;
-    }
-  }
-
-  if (forward) {
-    size_t start = current_step_.is_block ? current_index : current_index + 1;
-    for (size_t i = start; i < decoded.instructions.size(); ++i) {
-      uint64_t addr = decoded.address + decoded.instructions[i].offset;
-      if (breakpoints.find(addr) != breakpoints.end()) {
-        result.kind = BreakpointResult::Kind::exact;
-        result.address = addr;
-        return result;
-      }
-    }
-  } else {
-    size_t start = current_index;
-    for (size_t i = start; i-- > 0;) {
-      uint64_t addr = decoded.address + decoded.instructions[i].offset;
-      if (breakpoints.find(addr) != breakpoints.end()) {
-        result.kind = BreakpointResult::Kind::exact;
-        result.address = addr;
-        return result;
-      }
-    }
-  }
-
-  error = "breakpoint address not found in decoded block";
-  if (logger_) {
-    logger_->LogWarn(
-        "Rewind: breakpoint candidate in block 0x%llx not found after decode",
-        static_cast<unsigned long long>(block_step.address)
-    );
-  }
-  result.kind = BreakpointResult::Kind::unresolved_block;
-  result.address = block_step.address;
-  return result;
-}
-
-RewindEngine::BreakpointResult RewindEngine::find_breakpoint_hit(
-    const w1::rewind::flow_step& step, const std::unordered_set<uint64_t>& breakpoints, bool forward, std::string& error
-) {
-  BreakpointResult result{};
-  error.clear();
-  if (breakpoints.empty()) {
-    return result;
-  }
-  if (!session_.has_value()) {
-    return result;
-  }
-  const auto& context = session_->context();
-  if (!context.has_blocks()) {
-    if (breakpoints.find(step.address) != breakpoints.end()) {
-      result.kind = BreakpointResult::Kind::exact;
-      result.address = step.address;
-      return result;
-    }
-    return result;
-  }
-
-  if (breakpoints.find(step.address) != breakpoints.end()) {
-    result.kind = BreakpointResult::Kind::exact;
-    result.address = step.address;
-    return result;
-  }
-
-  if (step.size == 0) {
-    return result;
-  }
-
-  bool candidate = false;
-  uint64_t block_start = step.address;
-  uint64_t block_end = block_start + step.size;
-  for (const auto& bp : breakpoints) {
-    if (bp >= block_start && bp < block_end) {
-      candidate = true;
-      break;
-    }
-  }
-  if (!candidate) {
-    return result;
-  }
-
-  w1::rewind::replay_decoded_block decoded{};
-  if (!block_decoder_.decode_block(context, step, decoded, error)) {
-    if (logger_) {
-      logger_->LogWarn(
-          "Rewind: breakpoint candidate in block 0x%llx decode failed: %s",
-          static_cast<unsigned long long>(step.address), error.c_str()
-      );
-    }
-    result.kind = BreakpointResult::Kind::unresolved_block;
-    result.address = step.address;
-    return result;
-  }
-
-  if (forward) {
-    for (const auto& inst : decoded.instructions) {
-      uint64_t addr = decoded.address + inst.offset;
-      if (breakpoints.find(addr) != breakpoints.end()) {
-        result.kind = BreakpointResult::Kind::exact;
-        result.address = addr;
-        return result;
-      }
-    }
-  } else {
-    for (auto it = decoded.instructions.rbegin(); it != decoded.instructions.rend(); ++it) {
-      uint64_t addr = decoded.address + it->offset;
-      if (breakpoints.find(addr) != breakpoints.end()) {
-        result.kind = BreakpointResult::Kind::exact;
-        result.address = addr;
-        return result;
-      }
-    }
-  }
-
-  error = "breakpoint address not found in decoded block";
-  if (logger_) {
-    logger_->LogWarn(
-        "Rewind: breakpoint candidate in block 0x%llx not found after decode",
-        static_cast<unsigned long long>(step.address)
-    );
-  }
-  result.kind = BreakpointResult::Kind::unresolved_block;
-  result.address = step.address;
-  return result;
-}
-
 model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_set<uint64_t>& breakpoints) {
   const uint64_t cancel_token = cancel_epoch_.load(std::memory_order_relaxed);
   auto is_cancelled = [this, cancel_token]() { return cancel_epoch_.load(std::memory_order_relaxed) != cancel_token; };
@@ -1033,6 +833,17 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
     );
   }
 
+  std::optional<breakpoint_skip> skip_breakpoint;
+  if (breakpoints.find(current_step_.address) != breakpoints.end()) {
+    skip_breakpoint = breakpoint_skip{current_step_.address, current_step_.sequence};
+    if (logger_) {
+      logger_->LogDebug(
+          "Rewind: skipping current breakpoint at 0x%llx for continue",
+          static_cast<unsigned long long>(skip_breakpoint->address)
+      );
+    }
+  }
+
   fast_cursor_->set_cancel_checker([is_cancelled]() { return is_cancelled(); });
   struct CancelReset {
     w1::rewind::flow_cursor* cursor = nullptr;
@@ -1045,8 +856,10 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
 
   {
     std::string bp_error;
-    auto immediate = find_breakpoint_in_current_block(breakpoints, forward, bp_error);
-    if (immediate.kind == BreakpointResult::Kind::exact) {
+    auto immediate = breakpoint_matcher_.match_in_current_block(
+        session_->context(), current_step_, forward, breakpoints, skip_breakpoint, bp_error
+    );
+    if (immediate.kind == breakpoint_match_kind::exact) {
       if (!seek_to_address(immediate.address, forward, error)) {
         return make_error_update(error);
       }
@@ -1055,7 +868,13 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
       update_builder_.fill_update(make_update_context(), update);
       return update;
     }
-    if (immediate.kind == BreakpointResult::Kind::unresolved_block) {
+    if (immediate.kind == breakpoint_match_kind::unresolved_block) {
+      if (!bp_error.empty() && logger_) {
+        logger_->LogWarn(
+            "Rewind: breakpoint candidate in current block 0x%llx unresolved: %s",
+            static_cast<unsigned long long>(immediate.address), bp_error.c_str()
+        );
+      }
       if (logger_) {
         logger_->LogDebug(
             "Rewind: breakpoint candidate in current block 0x%llx unresolved; continuing",
@@ -1083,59 +902,56 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
 
   run_active_.store(true);
 
-  std::optional<w1::rewind::flow_step> last_step;
-  std::optional<uint64_t> hit_address;
-  bool hit_exact = false;
-  std::string stop_reason;
-  for (;;) {
-    if (is_cancelled()) {
-      stop_reason = "Paused";
-      break;
-    }
-
-    bool ok = forward ? fast_cursor_->step_forward(step) : fast_cursor_->step_backward(step);
-    if (!ok) {
-      if (is_cancelled()) {
-        stop_reason = "Paused";
-      } else {
-        auto kind = fast_cursor_->error_kind();
-        if (forward && kind == w1::rewind::flow_error_kind::end_of_trace) {
-          stop_reason = "End of trace";
-        } else if (!forward && kind == w1::rewind::flow_error_kind::begin_of_trace) {
-          stop_reason = "Start of trace";
-        } else {
-          stop_reason = std::string(fast_cursor_->error());
-        }
-      }
-      break;
-    }
-
-    last_step = step;
-    std::string bp_error;
-    auto hit = find_breakpoint_hit(step, breakpoints, forward, bp_error);
-    if (hit.kind == BreakpointResult::Kind::exact) {
-      stop_reason = "Breakpoint hit";
-      hit_address = hit.address;
-      hit_exact = true;
-      break;
-    }
-    if (hit.kind == BreakpointResult::Kind::unresolved_block) {
-      stop_reason = "Breakpoint in block";
-      hit_address = hit.address;
-      hit_exact = false;
-      break;
-    }
-  }
+  run_loop loop(&(*fast_cursor_), &breakpoint_matcher_, &session_->context());
+  auto stop = loop.run(forward, breakpoints, skip_breakpoint, is_cancelled);
 
   run_active_.store(false);
+
+  std::optional<w1::rewind::flow_step> last_step = stop.last_step;
+  std::optional<uint64_t> hit_address = stop.hit_address;
+  bool hit_exact = false;
+  std::string stop_reason;
+  switch (stop.reason) {
+  case run_stop_reason::hit_exact:
+    stop_reason = "Breakpoint hit";
+    hit_exact = true;
+    break;
+  case run_stop_reason::hit_in_block:
+    stop_reason = "Breakpoint in block";
+    if (!stop.detail.empty() && logger_ && hit_address.has_value()) {
+      logger_->LogWarn(
+          "Rewind: breakpoint candidate in block 0x%llx unresolved: %s",
+          static_cast<unsigned long long>(*hit_address), stop.detail.c_str()
+      );
+    }
+    break;
+  case run_stop_reason::end_of_trace:
+    stop_reason = "End of trace";
+    break;
+  case run_stop_reason::begin_of_trace:
+    stop_reason = "Start of trace";
+    break;
+  case run_stop_reason::cancelled:
+    stop_reason = "Paused";
+    break;
+  case run_stop_reason::error:
+  default:
+    stop_reason = stop.detail.empty() ? "Playback error" : stop.detail;
+    break;
+  }
   // cancel_epoch_ intentionally not reset; token-based cancellation is per-run.
 
   if (last_step.has_value()) {
     if (!move_to_sequence(current_thread_, last_step->sequence, error)) {
       return make_error_update(error);
     }
-    if (hit_exact && hit_address.has_value() && current_step_.address != *hit_address) {
+    if (hit_exact && hit_address.has_value() && (current_step_.is_block || current_step_.address != *hit_address)) {
       if (!seek_to_address(*hit_address, forward, error)) {
+        return make_error_update(error);
+      }
+    }
+    if (hit_exact && hit_address.has_value() && current_step_.is_block) {
+      if (!seek_to_address(*hit_address, true, error)) {
         return make_error_update(error);
       }
     }
@@ -1149,6 +965,11 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
         stop_reason.empty() ? "stopped" : stop_reason.c_str(), static_cast<unsigned long long>(seq),
         static_cast<unsigned long long>(addr), static_cast<unsigned long long>(hit_address.value_or(0)),
         hit_exact ? "true" : "false"
+    );
+    logger_->LogDebug(
+        "Rewind: stop position seq=%llu addr=0x%llx is_block=%s",
+        static_cast<unsigned long long>(current_step_.sequence), static_cast<unsigned long long>(current_step_.address),
+        current_step_.is_block ? "true" : "false"
     );
   }
 
@@ -1211,8 +1032,9 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
 
   {
     std::string hit_error;
-    auto immediate = find_breakpoint_in_current_block(targets, forward, hit_error);
-    if (immediate.kind == BreakpointResult::Kind::exact) {
+    auto immediate =
+        breakpoint_matcher_.match_in_current_block(session_->context(), current_step_, forward, targets, std::nullopt, hit_error);
+    if (immediate.kind == breakpoint_match_kind::exact) {
       if (!seek_to_address(immediate.address, forward, error)) {
         return make_error_update(error);
       }
@@ -1221,7 +1043,13 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
       update_builder_.fill_update(make_update_context(), update);
       return update;
     }
-    if (immediate.kind == BreakpointResult::Kind::unresolved_block) {
+    if (immediate.kind == breakpoint_match_kind::unresolved_block) {
+      if (!hit_error.empty() && logger_) {
+        logger_->LogWarn(
+            "Rewind: target candidate in current block 0x%llx unresolved: %s",
+            static_cast<unsigned long long>(immediate.address), hit_error.c_str()
+        );
+      }
       if (logger_) {
         logger_->LogDebug(
             "Rewind: target candidate in current block 0x%llx unresolved; stopping",
@@ -1256,59 +1084,56 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
 
   run_active_.store(true);
 
-  std::optional<w1::rewind::flow_step> last_step;
-  std::optional<uint64_t> hit_address;
-  bool hit_exact = false;
-  std::string stop_reason;
-  for (;;) {
-    if (is_cancelled()) {
-      stop_reason = "Paused";
-      break;
-    }
-
-    bool ok = forward ? fast_cursor_->step_forward(step) : fast_cursor_->step_backward(step);
-    if (!ok) {
-      if (is_cancelled()) {
-        stop_reason = "Paused";
-      } else {
-        auto kind = fast_cursor_->error_kind();
-        if (forward && kind == w1::rewind::flow_error_kind::end_of_trace) {
-          stop_reason = "End of trace";
-        } else if (!forward && kind == w1::rewind::flow_error_kind::begin_of_trace) {
-          stop_reason = "Start of trace";
-        } else {
-          stop_reason = std::string(fast_cursor_->error());
-        }
-      }
-      break;
-    }
-
-    last_step = step;
-    std::string hit_error;
-    auto hit = find_breakpoint_hit(step, targets, forward, hit_error);
-    if (hit.kind == BreakpointResult::Kind::exact) {
-      stop_reason = "Reached target";
-      hit_address = hit.address;
-      hit_exact = true;
-      break;
-    }
-    if (hit.kind == BreakpointResult::Kind::unresolved_block) {
-      stop_reason = "Target in block";
-      hit_address = hit.address;
-      hit_exact = false;
-      break;
-    }
-  }
+  run_loop loop(&(*fast_cursor_), &breakpoint_matcher_, &session_->context());
+  auto stop = loop.run(forward, targets, std::nullopt, is_cancelled);
 
   run_active_.store(false);
+
+  std::optional<w1::rewind::flow_step> last_step = stop.last_step;
+  std::optional<uint64_t> hit_address = stop.hit_address;
+  bool hit_exact = false;
+  std::string stop_reason;
+  switch (stop.reason) {
+  case run_stop_reason::hit_exact:
+    stop_reason = "Reached target";
+    hit_exact = true;
+    break;
+  case run_stop_reason::hit_in_block:
+    stop_reason = "Target in block";
+    if (!stop.detail.empty() && logger_ && hit_address.has_value()) {
+      logger_->LogWarn(
+          "Rewind: target candidate in block 0x%llx unresolved: %s",
+          static_cast<unsigned long long>(*hit_address), stop.detail.c_str()
+      );
+    }
+    break;
+  case run_stop_reason::end_of_trace:
+    stop_reason = "End of trace";
+    break;
+  case run_stop_reason::begin_of_trace:
+    stop_reason = "Start of trace";
+    break;
+  case run_stop_reason::cancelled:
+    stop_reason = "Paused";
+    break;
+  case run_stop_reason::error:
+  default:
+    stop_reason = stop.detail.empty() ? "Playback error" : stop.detail;
+    break;
+  }
   // cancel_epoch_ intentionally not reset; token-based cancellation is per-run.
 
   if (last_step.has_value()) {
     if (!move_to_sequence(current_thread_, last_step->sequence, error)) {
       return make_error_update(error);
     }
-    if (hit_exact && hit_address.has_value() && current_step_.address != *hit_address) {
+    if (hit_exact && hit_address.has_value() && (current_step_.is_block || current_step_.address != *hit_address)) {
       if (!seek_to_address(*hit_address, forward, error)) {
+        return make_error_update(error);
+      }
+    }
+    if (hit_exact && hit_address.has_value() && current_step_.is_block) {
+      if (!seek_to_address(*hit_address, true, error)) {
         return make_error_update(error);
       }
     }
@@ -1322,6 +1147,11 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
         static_cast<unsigned long long>(trace_address), forward ? "forward" : "backward",
         stop_reason.empty() ? "stopped" : stop_reason.c_str(), static_cast<unsigned long long>(seq),
         static_cast<unsigned long long>(addr), hit_exact ? "true" : "false"
+    );
+    logger_->LogDebug(
+        "Rewind: stop position seq=%llu addr=0x%llx is_block=%s",
+        static_cast<unsigned long long>(current_step_.sequence), static_cast<unsigned long long>(current_step_.address),
+        current_step_.is_block ? "true" : "false"
     );
   }
 

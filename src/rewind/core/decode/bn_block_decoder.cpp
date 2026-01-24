@@ -2,12 +2,11 @@
 
 #include <vector>
 
-#include "w1rewind/replay/flow_cursor.hpp"
 
 namespace binja::rewind::core::decode {
 
 bool BnBlockDecoder::decode_block(
-    const w1::rewind::replay_context& context, const w1::rewind::flow_step& flow, w1::rewind::replay_decoded_block& out,
+    const w1::rewind::replay_context& context, const w1::rewind::flow_step& flow, w1::rewind::decoded_block& out,
     std::string& error
 ) {
   error.clear();
@@ -58,7 +57,7 @@ bool BnBlockDecoder::decode_block(
     return false;
   }
 
-  out.address = flow.address;
+  out.start = flow.address;
   out.size = flow.size;
   out.instructions.clear();
 
@@ -75,8 +74,8 @@ bool BnBlockDecoder::decode_block(
       return false;
     }
 
-    w1::rewind::replay_decoded_instruction inst{};
-    inst.offset = static_cast<uint32_t>(offset);
+    w1::rewind::decoded_instruction inst{};
+    inst.address = flow.address + static_cast<uint64_t>(offset);
     inst.size = static_cast<uint32_t>(info.length);
     inst.bytes.assign(bytes.begin() + offset, bytes.begin() + offset + info.length);
     out.instructions.push_back(std::move(inst));

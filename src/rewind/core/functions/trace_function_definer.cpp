@@ -22,13 +22,10 @@ DefineFunctionsResult TraceFunctionDefiner::define_functions(
 
   auto stream = std::make_shared<w1::rewind::trace_reader>(trace_path);
 
-  w1::rewind::flow_cursor_config cfg{};
-  cfg.stream = stream;
-  cfg.index = index;
-  cfg.history_size = 1;
-  cfg.context = &session.context();
-
-  w1::rewind::flow_cursor cursor(cfg);
+  w1::rewind::record_stream_cursor stream_cursor(stream);
+  w1::rewind::flow_extractor extractor(&session.context());
+  w1::rewind::history_window history(1);
+  w1::rewind::flow_cursor cursor(std::move(stream_cursor), std::move(extractor), std::move(history), index);
   if (!cursor.open()) {
     result.error = std::string(cursor.error());
     return result;

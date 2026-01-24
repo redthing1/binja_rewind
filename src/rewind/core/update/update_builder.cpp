@@ -60,13 +60,10 @@ bool UpdateBuilder::sample_gradient(const UpdateContext& ctx, GradientSample& sa
 
   auto stream = std::make_shared<w1::rewind::trace_reader>(*ctx.trace_path);
 
-  w1::rewind::flow_cursor_config cfg{};
-  cfg.stream = stream;
-  cfg.index = ctx.trace_index;
-  cfg.history_size = static_cast<uint32_t>(ctx.gradient_size + 1);
-  cfg.context = &ctx.session->context();
-
-  w1::rewind::flow_cursor cursor(cfg);
+  w1::rewind::record_stream_cursor stream_cursor(stream);
+  w1::rewind::flow_extractor extractor(&ctx.session->context());
+  w1::rewind::history_window history(ctx.gradient_size + 1);
+  w1::rewind::flow_cursor cursor(std::move(stream_cursor), std::move(extractor), std::move(history), ctx.trace_index);
   if (!cursor.open()) {
     return false;
   }

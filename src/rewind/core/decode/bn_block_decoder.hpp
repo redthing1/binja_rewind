@@ -4,11 +4,11 @@
 
 #include "binaryninjaapi.h"
 #include "rewind/core/mapping/address_mapper.hpp"
-#include "w1rewind/replay/replay_decode.hpp"
+#include "w1rewind/replay/block_decoder.hpp"
 
 namespace binja::rewind::core::decode {
 
-class BnBlockDecoder : public w1::rewind::replay_block_decoder {
+class BnBlockDecoder : public w1::rewind::block_decoder {
 public:
   explicit BnBlockDecoder(
       BinaryNinja::Ref<BinaryNinja::BinaryView> view = nullptr, const mapping::AddressMapper* mapper = nullptr
@@ -19,8 +19,8 @@ public:
   void set_mapper(const mapping::AddressMapper* mapper) { mapper_ = mapper; }
 
   bool decode_block(
-      const w1::rewind::replay_context& context, const w1::rewind::flow_step& flow,
-      w1::rewind::replay_decoded_block& out, std::string& error
+      const w1::rewind::replay_context& context, const w1::rewind::flow_step& flow, w1::rewind::decoded_block& out,
+      std::string& error
   ) override;
 
 private:

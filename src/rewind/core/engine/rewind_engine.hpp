@@ -13,6 +13,7 @@
 #include "rewind/core/breakpoints/breakpoint_provider.hpp"
 #include "rewind/core/decode/bn_block_decoder.hpp"
 #include "rewind/core/decode/instruction_decoder.hpp"
+#include "rewind/core/engine/breakpoint_matcher.hpp"
 #include "rewind/core/functions/trace_function_definer.hpp"
 #include "rewind/core/mapping/address_mapper.hpp"
 #include "rewind/core/model/replay_types.hpp"
@@ -54,11 +55,6 @@ public:
   std::unordered_set<uint64_t> collect_breakpoints() const;
 
 private:
-  struct BreakpointResult {
-    enum class Kind { none, exact, unresolved_block };
-    Kind kind = Kind::none;
-    uint64_t address = 0;
-  };
 
   static constexpr size_t kStepGuardLimit = 1000000;
   static constexpr size_t kDefaultFastHistorySize = 1u << 16;
@@ -78,14 +74,6 @@ private:
   bool move_to_sequence(uint64_t thread_id, uint64_t sequence, std::string& error);
   bool update_current_step(std::string& error);
   bool seek_to_address(uint64_t trace_address, bool forward, std::string& error, size_t max_steps = kStepGuardLimit);
-  BreakpointResult find_breakpoint_in_current_block(
-      const std::unordered_set<uint64_t>& breakpoints, bool forward, std::string& error
-  );
-  BreakpointResult find_breakpoint_hit(
-      const w1::rewind::flow_step& step, const std::unordered_set<uint64_t>& breakpoints, bool forward,
-      std::string& error
-  );
-
   model::ReplayUpdate run_flow(bool forward, const std::unordered_set<uint64_t>& breakpoints);
 
   BinaryNinja::Ref<BinaryNinja::BinaryView> view_;
@@ -93,6 +81,7 @@ private:
 
   mapping::AddressMapper mapper_{};
   decode::BnBlockDecoder block_decoder_{};
+  breakpoint_matcher breakpoint_matcher_{&block_decoder_};
   decode::InstructionDecoder instruction_decoder_{};
   breakpoints::BreakpointProvider breakpoint_provider_{};
   update::UpdateBuilder update_builder_{};
