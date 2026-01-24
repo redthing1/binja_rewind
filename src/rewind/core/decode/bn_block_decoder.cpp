@@ -38,6 +38,19 @@ bool BnBlockDecoder::decode_block(
     return false;
   }
 
+  uint64_t decode_addr = *view_addr;
+  if ((flow.flags & w1::rewind::trace_block_flag_mode_valid) != 0) {
+    if ((flow.flags & w1::rewind::trace_block_flag_thumb) != 0) {
+      decode_addr |= 1ULL;
+    } else {
+      decode_addr &= ~1ULL;
+    }
+  }
+
+  if (auto associated = arch->GetAssociatedArchitectureByAddress(decode_addr); associated) {
+    arch = associated;
+  }
+
   std::vector<uint8_t> bytes(flow.size);
   size_t read = view_->Read(bytes.data(), *view_addr, bytes.size());
   if (read < bytes.size()) {
@@ -53,7 +66,7 @@ bool BnBlockDecoder::decode_block(
   while (offset < bytes.size()) {
     BinaryNinja::InstructionInfo info;
     size_t max_len = bytes.size() - offset;
-    if (!arch->GetInstructionInfo(bytes.data() + offset, *view_addr + offset, max_len, info)) {
+    if (!arch->GetInstructionInfo(bytes.data() + offset, decode_addr + offset, max_len, info)) {
       error = "failed to decode instruction info";
       return false;
     }

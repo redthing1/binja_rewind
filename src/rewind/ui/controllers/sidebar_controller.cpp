@@ -229,6 +229,10 @@ void SidebarController::apply_update(const core::model::ReplayUpdate& update) {
     view_.set_status(QString::fromStdString(update.status));
   }
 
+  if (update.status_only) {
+    return;
+  }
+
   if (update.trace_cleared) {
     view_.reset_trace_ui();
     trace_loaded_ = false;

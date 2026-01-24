@@ -1,5 +1,6 @@
 #include "rewind/core/worker/rewind_worker.hpp"
 
+#include <sstream>
 #include <unordered_set>
 #include <utility>
 
@@ -104,6 +105,10 @@ void RewindWorker::step_out_backward() {
 
 void RewindWorker::run_forward() {
   enqueue([this]() {
+    model::ReplayUpdate seeking{};
+    seeking.status = "Seeking forward...";
+    seeking.status_only = true;
+    post_update(std::move(seeking));
     std::unordered_set<uint64_t> breakpoints;
     BinaryNinja::ExecuteOnMainThreadAndWait([&]() { breakpoints = engine_.collect_breakpoints(); });
     post_update(engine_.run_forward(breakpoints));
@@ -112,6 +117,10 @@ void RewindWorker::run_forward() {
 
 void RewindWorker::run_backward() {
   enqueue([this]() {
+    model::ReplayUpdate seeking{};
+    seeking.status = "Seeking backward...";
+    seeking.status_only = true;
+    post_update(std::move(seeking));
     std::unordered_set<uint64_t> breakpoints;
     BinaryNinja::ExecuteOnMainThreadAndWait([&]() { breakpoints = engine_.collect_breakpoints(); });
     post_update(engine_.run_backward(breakpoints));
@@ -119,18 +128,56 @@ void RewindWorker::run_backward() {
 }
 
 void RewindWorker::run_to_address(uint64_t trace_address, bool forward) {
-  enqueue([this, trace_address, forward]() { post_update(engine_.run_to_address(trace_address, forward)); });
+  enqueue([this, trace_address, forward]() {
+    auto to_hex = [](uint64_t value) {
+      std::ostringstream oss;
+      oss << std::hex << value;
+      return oss.str();
+    };
+    model::ReplayUpdate seeking{};
+    seeking.status =
+        forward ? ("Seeking to 0x" + to_hex(trace_address) + "...") :
+                  ("Seeking back to 0x" + to_hex(trace_address) + "...");
+    seeking.status_only = true;
+    post_update(std::move(seeking));
+    post_update(engine_.run_to_address(trace_address, forward));
+  });
 }
 
 void RewindWorker::run_to_view_address(uint64_t view_address, bool forward) {
-  enqueue([this, view_address, forward]() { post_update(engine_.run_to_view_address(view_address, forward)); });
+  enqueue([this, view_address, forward]() {
+    auto to_hex = [](uint64_t value) {
+      std::ostringstream oss;
+      oss << std::hex << value;
+      return oss.str();
+    };
+    model::ReplayUpdate seeking{};
+    seeking.status =
+        forward ? ("Seeking to view 0x" + to_hex(view_address) + "...") :
+                  ("Seeking back to view 0x" + to_hex(view_address) + "...");
+    seeking.status_only = true;
+    post_update(std::move(seeking));
+    post_update(engine_.run_to_view_address(view_address, forward));
+  });
 }
 
 void RewindWorker::run_to_start() {
-  enqueue([this]() { post_update(engine_.run_to_start()); });
+  enqueue([this]() {
+    model::ReplayUpdate seeking{};
+    seeking.status = "Rewinding to start...";
+    seeking.status_only = true;
+    post_update(std::move(seeking));
+    post_update(engine_.run_to_start());
+  });
 }
 
-void RewindWorker::pause() { post_update(engine_.pause()); }
+void RewindWorker::pause() {
+  engine_.request_cancel();
+  model::ReplayUpdate update{};
+  update.status = "Paused";
+  update.status_only = true;
+  post_update(std::move(update));
+}
 
 void RewindWorker::set_gradient_size(size_t size) {
   enqueue([this, size]() { engine_.set_gradient_size(size); });

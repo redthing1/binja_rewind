@@ -48,6 +48,7 @@ struct ReplayUpdate {
   bool trace_loaded = false;
   bool trace_cleared = false;
   bool controls_enabled = false;
+  bool status_only = false;
 
   bool has_position = false;
   uint64_t thread_id = 0;

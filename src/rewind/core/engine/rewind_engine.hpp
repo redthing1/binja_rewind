@@ -54,6 +54,12 @@ public:
   std::unordered_set<uint64_t> collect_breakpoints() const;
 
 private:
+  struct BreakpointResult {
+    enum class Kind { none, exact, unresolved_block };
+    Kind kind = Kind::none;
+    uint64_t address = 0;
+  };
+
   static constexpr size_t kStepGuardLimit = 1000000;
   static constexpr size_t kDefaultFastHistorySize = 1u << 16;
 
@@ -66,16 +72,16 @@ private:
 
   bool ensure_session_ready(std::string& error) const;
   bool ensure_position(std::string& error) const;
-  bool ensure_instruction_position(std::string& error);
+  bool ensure_instruction_position(bool forward, std::string& error);
   bool open_trace(const std::string& path, std::string& error, std::string& warning);
   void close_trace();
   bool move_to_sequence(uint64_t thread_id, uint64_t sequence, std::string& error);
   bool update_current_step(std::string& error);
   bool seek_to_address(uint64_t trace_address, bool forward, std::string& error, size_t max_steps = kStepGuardLimit);
-  std::optional<uint64_t> find_breakpoint_in_current_block(
+  BreakpointResult find_breakpoint_in_current_block(
       const std::unordered_set<uint64_t>& breakpoints, bool forward, std::string& error
   );
-  std::optional<uint64_t> find_breakpoint_hit(
+  BreakpointResult find_breakpoint_hit(
       const w1::rewind::flow_step& step, const std::unordered_set<uint64_t>& breakpoints, bool forward,
       std::string& error
   );
@@ -111,7 +117,7 @@ private:
   std::optional<w1::rewind::flow_cursor> fast_cursor_;
 
   std::atomic<bool> run_active_{false};
-  std::atomic<bool> cancel_requested_{false};
+  std::atomic<uint64_t> cancel_epoch_{0};
 };
 
 } // namespace binja::rewind::core::engine
