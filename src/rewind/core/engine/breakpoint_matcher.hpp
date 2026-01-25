@@ -36,9 +36,7 @@ public:
   ) const;
 
 private:
-  static bool is_skipped(
-      const std::optional<breakpoint_skip>& skip, uint64_t sequence, uint64_t address
-  );
+  static bool is_skipped(const std::optional<breakpoint_skip>& skip, uint64_t sequence, uint64_t address);
 
   w1::rewind::block_decoder* decoder_ = nullptr;
 };

@@ -8,9 +8,9 @@
 #include "w1base/arch_spec.hpp"
 #include "w1rewind/replay/flow_cursor.hpp"
 #include "w1rewind/replay/replay_context.hpp"
+#include "w1rewind/trace/trace_file_writer.hpp"
 #include "w1rewind/trace/trace_index.hpp"
 #include "w1rewind/trace/trace_reader.hpp"
-#include "w1rewind/trace/trace_file_writer.hpp"
 
 namespace {
 

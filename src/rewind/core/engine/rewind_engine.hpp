@@ -55,11 +55,8 @@ public:
   std::unordered_set<uint64_t> collect_breakpoints() const;
 
 private:
-
   static constexpr size_t kStepGuardLimit = 1000000;
   static constexpr size_t kDefaultFastHistorySize = 1u << 16;
-
-  static bool has_branch_type(const BinaryNinja::InstructionInfo& info, BNBranchType type);
 
   update::UpdateContext make_update_context();
   model::ReplayUpdate make_status_update(const std::string& status);

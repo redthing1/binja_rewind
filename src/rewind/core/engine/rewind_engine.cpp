@@ -11,15 +11,6 @@
 
 namespace binja::rewind::core::engine {
 
-bool RewindEngine::has_branch_type(const BinaryNinja::InstructionInfo& info, BNBranchType type) {
-  for (size_t i = 0; i < info.branchCount; ++i) {
-    if (info.branchType[i] == type) {
-      return true;
-    }
-  }
-  return false;
-}
-
 RewindEngine::RewindEngine(BinaryNinja::Ref<BinaryNinja::BinaryView> view) : view_(std::move(view)) {
   if (view_) {
     logger_ = view_->CreateLogger("Rewind");
@@ -211,8 +202,7 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
   }
 
   auto fast_stream = std::make_shared<w1::rewind::trace_reader>(path);
-  size_t history_size =
-      std::min(fast_history_size_, static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
+  size_t history_size = std::min(fast_history_size_, static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
   w1::rewind::record_stream_cursor stream_cursor(fast_stream);
   w1::rewind::flow_extractor extractor(&session_->context());
   w1::rewind::history_window history(history_size);
@@ -555,24 +545,22 @@ model::ReplayUpdate RewindEngine::step_over() {
     return update_current_step(step_error);
   };
 
-  BinaryNinja::InstructionInfo info{};
-  size_t length = 0;
-  if (!instruction_decoder_.decode_instruction(current_step_.address, info, length, error)) {
+  decode::InstructionDecoder::instruction_semantics semantics{};
+  if (!instruction_decoder_.decode_instruction_semantics(current_step_.address, semantics, error)) {
     if (!step_forward(error)) {
       return make_error_update(error);
     }
     return make_status_update("Stepped");
   }
 
-  bool is_call = has_branch_type(info, CallDestination) || has_branch_type(info, SystemCall);
-  if (!is_call) {
+  if (!semantics.is_call) {
     if (!step_forward(error)) {
       return make_error_update(error);
     }
     return make_status_update("Stepped");
   }
 
-  uint64_t target_address = current_step_.address + length;
+  uint64_t target_address = current_step_.address + semantics.length;
   if (!seek_to_address(target_address, true, error)) {
     return make_error_update(error);
   }
@@ -600,10 +588,9 @@ model::ReplayUpdate RewindEngine::step_out() {
     return update_current_step(step_error);
   };
 
-  BinaryNinja::InstructionInfo info{};
-  size_t length = 0;
-  if (instruction_decoder_.decode_instruction(current_step_.address, info, length, error) &&
-      has_branch_type(info, FunctionReturn)) {
+  decode::InstructionDecoder::instruction_semantics semantics{};
+  if (instruction_decoder_.decode_instruction_semantics(current_step_.address, semantics, error) &&
+      semantics.is_return) {
     if (!step_forward(error)) {
       return make_error_update(error);
     }
@@ -620,14 +607,13 @@ model::ReplayUpdate RewindEngine::step_out() {
       return make_error_update("step out exceeded step limit");
     }
 
-    BinaryNinja::InstructionInfo step_info{};
-    size_t step_len = 0;
+    decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
-    if (instruction_decoder_.decode_instruction(current_step_.address, step_info, step_len, decode_error)) {
-      if (has_branch_type(step_info, CallDestination) || has_branch_type(step_info, SystemCall)) {
+    if (instruction_decoder_.decode_instruction_semantics(current_step_.address, step_semantics, decode_error)) {
+      if (step_semantics.is_call) {
         depth++;
       }
-      if (has_branch_type(step_info, FunctionReturn)) {
+      if (step_semantics.is_return) {
         if (depth == 0) {
           if (!step_forward(error)) {
             return make_error_update(error);
@@ -666,20 +652,16 @@ model::ReplayUpdate RewindEngine::step_over_backward() {
     return make_error_update(error);
   }
 
-  BinaryNinja::InstructionInfo info{};
-  size_t length = 0;
-  if (!instruction_decoder_.decode_instruction(current_step_.address, info, length, error)) {
+  decode::InstructionDecoder::instruction_semantics semantics{};
+  if (!instruction_decoder_.decode_instruction_semantics(current_step_.address, semantics, error)) {
     return make_status_update("Stepped back");
   }
 
-  bool is_call = has_branch_type(info, CallDestination) || has_branch_type(info, SystemCall);
-  bool is_return = has_branch_type(info, FunctionReturn);
-
-  if (is_call && !is_return) {
+  if (semantics.is_call && !semantics.is_return) {
     return make_status_update("Step over back");
   }
 
-  if (!is_return) {
+  if (!semantics.is_return) {
     return make_status_update("Stepped back");
   }
 
@@ -693,14 +675,13 @@ model::ReplayUpdate RewindEngine::step_over_backward() {
       return make_error_update("step over back exceeded step limit");
     }
 
-    BinaryNinja::InstructionInfo step_info{};
-    size_t step_len = 0;
+    decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
-    if (instruction_decoder_.decode_instruction(current_step_.address, step_info, step_len, decode_error)) {
-      if (has_branch_type(step_info, FunctionReturn)) {
+    if (instruction_decoder_.decode_instruction_semantics(current_step_.address, step_semantics, decode_error)) {
+      if (step_semantics.is_return) {
         depth++;
       }
-      if (has_branch_type(step_info, CallDestination) || has_branch_type(step_info, SystemCall)) {
+      if (step_semantics.is_call) {
         depth = std::max(0, depth - 1);
         if (depth == 0) {
           break;
@@ -742,14 +723,13 @@ model::ReplayUpdate RewindEngine::step_out_backward() {
       return make_error_update("step out back exceeded step limit");
     }
 
-    BinaryNinja::InstructionInfo step_info{};
-    size_t step_len = 0;
+    decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
-    if (instruction_decoder_.decode_instruction(current_step_.address, step_info, step_len, decode_error)) {
-      if (has_branch_type(step_info, FunctionReturn)) {
+    if (instruction_decoder_.decode_instruction_semantics(current_step_.address, step_semantics, decode_error)) {
+      if (step_semantics.is_return) {
         depth++;
       }
-      if (has_branch_type(step_info, CallDestination) || has_branch_type(step_info, SystemCall)) {
+      if (step_semantics.is_call) {
         if (depth == 0) {
           break;
         }
@@ -920,8 +900,8 @@ model::ReplayUpdate RewindEngine::run_flow(bool forward, const std::unordered_se
     stop_reason = "Breakpoint in block";
     if (!stop.detail.empty() && logger_ && hit_address.has_value()) {
       logger_->LogWarn(
-          "Rewind: breakpoint candidate in block 0x%llx unresolved: %s",
-          static_cast<unsigned long long>(*hit_address), stop.detail.c_str()
+          "Rewind: breakpoint candidate in block 0x%llx unresolved: %s", static_cast<unsigned long long>(*hit_address),
+          stop.detail.c_str()
       );
     }
     break;
@@ -1032,8 +1012,9 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
 
   {
     std::string hit_error;
-    auto immediate =
-        breakpoint_matcher_.match_in_current_block(session_->context(), current_step_, forward, targets, std::nullopt, hit_error);
+    auto immediate = breakpoint_matcher_.match_in_current_block(
+        session_->context(), current_step_, forward, targets, std::nullopt, hit_error
+    );
     if (immediate.kind == breakpoint_match_kind::exact) {
       if (!seek_to_address(immediate.address, forward, error)) {
         return make_error_update(error);
@@ -1102,8 +1083,8 @@ model::ReplayUpdate RewindEngine::run_to_address(uint64_t trace_address, bool fo
     stop_reason = "Target in block";
     if (!stop.detail.empty() && logger_ && hit_address.has_value()) {
       logger_->LogWarn(
-          "Rewind: target candidate in block 0x%llx unresolved: %s",
-          static_cast<unsigned long long>(*hit_address), stop.detail.c_str()
+          "Rewind: target candidate in block 0x%llx unresolved: %s", static_cast<unsigned long long>(*hit_address),
+          stop.detail.c_str()
       );
     }
     break;

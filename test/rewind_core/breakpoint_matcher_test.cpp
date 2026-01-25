@@ -60,9 +60,7 @@ TEST_CASE("breakpoint_matcher matches within current block respecting skip") {
   std::unordered_set<uint64_t> breakpoints = {0x1000, 0x1002};
   std::string error;
 
-  auto match = matcher.match_in_current_block(
-      context, current, true, breakpoints, std::nullopt, error
-  );
+  auto match = matcher.match_in_current_block(context, current, true, breakpoints, std::nullopt, error);
   CHECK(match.kind == binja::rewind::core::engine::breakpoint_match_kind::exact);
   CHECK(match.address == 0x1000);
 
@@ -87,9 +85,7 @@ TEST_CASE("breakpoint_matcher reports unresolved when decoder missing") {
   std::unordered_set<uint64_t> breakpoints = {0x1000};
   std::string error;
 
-  auto match = matcher.match_in_current_block(
-      context, current, true, breakpoints, std::nullopt, error
-  );
+  auto match = matcher.match_in_current_block(context, current, true, breakpoints, std::nullopt, error);
   CHECK(match.kind == binja::rewind::core::engine::breakpoint_match_kind::unresolved_block);
   CHECK(match.address == 0x1000);
 }

@@ -2,7 +2,6 @@
 
 #include <vector>
 
-
 namespace binja::rewind::core::decode {
 
 bool BnBlockDecoder::decode_block(

@@ -59,6 +59,7 @@ add_subdirectory(${W1TN3SS_PATH} ${CMAKE_BINARY_DIR}/_deps/w1tn3ss)
 add_library(rewind_core_lib STATIC
     src/rewind/core/mapping/address_mapper.cpp
     src/rewind/core/decode/bn_block_decoder.cpp
+    src/rewind/core/decode/instruction_classifier.cpp
     src/rewind/core/decode/instruction_decoder.cpp
     src/rewind/core/breakpoints/breakpoint_provider.cpp
     src/rewind/core/update/update_builder.cpp
@@ -131,6 +132,7 @@ if(BINJA_REWIND_BUILD_TESTS)
         test/rewind_core/path_utils_test.cpp
         test/rewind_core/permission_format_test.cpp
         test/rewind_core/breakpoint_matcher_test.cpp
+        test/rewind_core/instruction_classifier_test.cpp
         test/rewind_core/run_loop_test.cpp
     )
 

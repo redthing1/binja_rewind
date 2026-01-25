@@ -22,9 +22,7 @@ struct run_stop {
 
 class run_loop {
 public:
-  run_loop(
-      w1::rewind::flow_cursor* cursor, breakpoint_matcher* matcher, const w1::rewind::replay_context* context
-  )
+  run_loop(w1::rewind::flow_cursor* cursor, breakpoint_matcher* matcher, const w1::rewind::replay_context* context)
       : cursor_(cursor), matcher_(matcher), context_(context) {}
 
   run_stop run(
