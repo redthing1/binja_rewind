@@ -1,4 +1,4 @@
-#include "rewind/core/functions/trace_function_definer.hpp"
+#include "rewind/core/analysis/trace_function_definer.hpp"
 
 #include <algorithm>
 #include <unordered_set>
@@ -6,7 +6,7 @@
 #include "w1rewind/replay/flow_cursor.hpp"
 #include "w1rewind/trace/trace_reader.hpp"
 
-namespace binja::rewind::core::functions {
+namespace binja::rewind::core::analysis {
 
 DefineFunctionsResult TraceFunctionDefiner::define_functions(
     const w1::rewind::replay_session& session, const std::shared_ptr<w1::rewind::trace_index>& index,
@@ -122,4 +122,4 @@ DefineFunctionsResult TraceFunctionDefiner::define_functions(
   return result;
 }
 
-} // namespace binja::rewind::core::functions
+} // namespace binja::rewind::core::analysis

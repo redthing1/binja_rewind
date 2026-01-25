@@ -10,7 +10,7 @@
 #include "w1rewind/replay/replay_session.hpp"
 #include "w1rewind/trace/trace_index.hpp"
 
-namespace binja::rewind::core::functions {
+namespace binja::rewind::core::analysis {
 
 struct DefineFunctionsResult {
   bool ok = false;
@@ -31,4 +31,4 @@ public:
   ) const;
 };
 
-} // namespace binja::rewind::core::functions
+} // namespace binja::rewind::core::analysis

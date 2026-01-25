@@ -63,7 +63,8 @@ add_library(rewind_core_lib STATIC
     src/rewind/core/decode/instruction_decoder.cpp
     src/rewind/core/breakpoints/breakpoint_provider.cpp
     src/rewind/core/update/update_builder.cpp
-    src/rewind/core/functions/trace_function_definer.cpp
+    src/rewind/core/analysis/trace_function_definer.cpp
+    src/rewind/core/analysis/trace_control_flow_analyzer.cpp
     src/rewind/core/engine/breakpoint_matcher.cpp
     src/rewind/core/engine/run_loop.cpp
     src/rewind/core/engine/rewind_engine.cpp
@@ -133,6 +134,7 @@ if(BINJA_REWIND_BUILD_TESTS)
         test/rewind_core/permission_format_test.cpp
         test/rewind_core/breakpoint_matcher_test.cpp
         test/rewind_core/instruction_classifier_test.cpp
+        test/rewind_core/control_flow_edge_policy_test.cpp
         test/rewind_core/run_loop_test.cpp
     )
 

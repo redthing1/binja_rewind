@@ -41,7 +41,8 @@ public:
   void pause();
   void set_gradient_size(size_t size);
   void set_reverse_history_size(size_t size);
-  void define_functions_from_trace();
+  void run_function_discovery_analysis();
+  void run_control_flow_edge_analysis();
 
 private:
   void enqueue(std::function<void()> task);

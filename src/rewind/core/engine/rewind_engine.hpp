@@ -10,11 +10,12 @@
 #include <vector>
 
 #include "binaryninjaapi.h"
+#include "rewind/core/analysis/trace_control_flow_analyzer.hpp"
+#include "rewind/core/analysis/trace_function_definer.hpp"
 #include "rewind/core/breakpoints/breakpoint_provider.hpp"
 #include "rewind/core/decode/bn_block_decoder.hpp"
 #include "rewind/core/decode/instruction_decoder.hpp"
 #include "rewind/core/engine/breakpoint_matcher.hpp"
-#include "rewind/core/functions/trace_function_definer.hpp"
 #include "rewind/core/mapping/address_mapper.hpp"
 #include "rewind/core/model/replay_types.hpp"
 #include "rewind/core/update/update_builder.hpp"
@@ -45,7 +46,8 @@ public:
   model::ReplayUpdate run_to_view_address(uint64_t view_address, bool forward);
   model::ReplayUpdate run_to_start();
 
-  model::ReplayUpdate define_functions_from_trace(const std::function<void(model::ReplayUpdate)>& progress = {});
+  model::ReplayUpdate run_function_discovery_analysis(const std::function<void(model::ReplayUpdate)>& progress = {});
+  model::ReplayUpdate run_control_flow_edge_analysis(const std::function<void(model::ReplayUpdate)>& progress = {});
 
   model::ReplayUpdate pause();
   void request_cancel();
@@ -82,7 +84,8 @@ private:
   decode::InstructionDecoder instruction_decoder_{};
   breakpoints::BreakpointProvider breakpoint_provider_{};
   update::UpdateBuilder update_builder_{};
-  functions::TraceFunctionDefiner function_definer_{};
+  analysis::TraceFunctionDefiner function_definer_{};
+  analysis::TraceControlFlowAnalyzer control_flow_analyzer_{};
 
   std::string trace_path_;
   std::string trace_index_path_;

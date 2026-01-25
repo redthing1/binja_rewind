@@ -7,9 +7,30 @@
 #include <vector>
 
 #include "w1base/arch_spec.hpp"
+#include "w1rewind/format/trace_format.hpp"
 #include "w1rewind/trace/trace_reader.hpp"
 
 namespace binja::rewind::core::engine {
+
+namespace {
+
+decode::InstructionDecoder::instruction_mode instruction_mode_from_step(const w1::rewind::flow_step& step) {
+  decode::InstructionDecoder::instruction_mode mode{};
+  if (step.is_block) {
+    if ((step.flags & w1::rewind::trace_block_flag_mode_valid) != 0) {
+      mode.mode_valid = true;
+      mode.thumb = (step.flags & w1::rewind::trace_block_flag_thumb) != 0;
+    }
+  } else {
+    if ((step.flags & w1::rewind::trace_inst_flag_mode_valid) != 0) {
+      mode.mode_valid = true;
+      mode.thumb = (step.flags & w1::rewind::trace_inst_flag_thumb) != 0;
+    }
+  }
+  return mode;
+}
+
+} // namespace
 
 RewindEngine::RewindEngine(BinaryNinja::Ref<BinaryNinja::BinaryView> view) : view_(std::move(view)) {
   if (view_) {
@@ -546,7 +567,9 @@ model::ReplayUpdate RewindEngine::step_over() {
   };
 
   decode::InstructionDecoder::instruction_semantics semantics{};
-  if (!instruction_decoder_.decode_instruction_semantics(current_step_.address, semantics, error)) {
+  if (!instruction_decoder_.decode_instruction_semantics(
+          current_step_.address, semantics, error, instruction_mode_from_step(current_step_)
+      )) {
     if (!step_forward(error)) {
       return make_error_update(error);
     }
@@ -589,7 +612,9 @@ model::ReplayUpdate RewindEngine::step_out() {
   };
 
   decode::InstructionDecoder::instruction_semantics semantics{};
-  if (instruction_decoder_.decode_instruction_semantics(current_step_.address, semantics, error) &&
+  if (instruction_decoder_.decode_instruction_semantics(
+          current_step_.address, semantics, error, instruction_mode_from_step(current_step_)
+      ) &&
       semantics.is_return) {
     if (!step_forward(error)) {
       return make_error_update(error);
@@ -609,7 +634,9 @@ model::ReplayUpdate RewindEngine::step_out() {
 
     decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
-    if (instruction_decoder_.decode_instruction_semantics(current_step_.address, step_semantics, decode_error)) {
+    if (instruction_decoder_.decode_instruction_semantics(
+            current_step_.address, step_semantics, decode_error, instruction_mode_from_step(current_step_)
+        )) {
       if (step_semantics.is_call) {
         depth++;
       }
@@ -653,7 +680,9 @@ model::ReplayUpdate RewindEngine::step_over_backward() {
   }
 
   decode::InstructionDecoder::instruction_semantics semantics{};
-  if (!instruction_decoder_.decode_instruction_semantics(current_step_.address, semantics, error)) {
+  if (!instruction_decoder_.decode_instruction_semantics(
+          current_step_.address, semantics, error, instruction_mode_from_step(current_step_)
+      )) {
     return make_status_update("Stepped back");
   }
 
@@ -677,7 +706,9 @@ model::ReplayUpdate RewindEngine::step_over_backward() {
 
     decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
-    if (instruction_decoder_.decode_instruction_semantics(current_step_.address, step_semantics, decode_error)) {
+    if (instruction_decoder_.decode_instruction_semantics(
+            current_step_.address, step_semantics, decode_error, instruction_mode_from_step(current_step_)
+        )) {
       if (step_semantics.is_return) {
         depth++;
       }
@@ -725,7 +756,9 @@ model::ReplayUpdate RewindEngine::step_out_backward() {
 
     decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
-    if (instruction_decoder_.decode_instruction_semantics(current_step_.address, step_semantics, decode_error)) {
+    if (instruction_decoder_.decode_instruction_semantics(
+            current_step_.address, step_semantics, decode_error, instruction_mode_from_step(current_step_)
+        )) {
       if (step_semantics.is_return) {
         depth++;
       }
@@ -1153,7 +1186,7 @@ model::ReplayUpdate RewindEngine::run_to_view_address(uint64_t view_address, boo
   return run_to_address(*trace_addr, forward);
 }
 
-model::ReplayUpdate RewindEngine::define_functions_from_trace(
+model::ReplayUpdate RewindEngine::run_function_discovery_analysis(
     const std::function<void(model::ReplayUpdate)>& progress
 ) {
   std::string error;
@@ -1164,14 +1197,14 @@ model::ReplayUpdate RewindEngine::define_functions_from_trace(
     return make_error_update("address mapper unavailable");
   }
   if (run_active_.load()) {
-    return make_error_update("pause playback before defining functions");
+    return make_error_update("pause playback before function discovery analysis");
   }
 
   if (logger_) {
-    logger_->LogInfo("Rewind: scanning trace for function candidates");
+    logger_->LogInfo("Rewind: scanning trace for function discovery analysis");
   }
   if (progress) {
-    progress(make_status_update("Scanning trace for functions..."));
+    progress(make_status_update("Scanning trace for function discovery analysis..."));
   }
 
   const auto result = function_definer_.define_functions(*session_, trace_index_, mapper_, view_, trace_path_, logger_);
@@ -1184,12 +1217,73 @@ model::ReplayUpdate RewindEngine::define_functions_from_trace(
 
   if (logger_) {
     logger_->LogInfo(
-        "Rewind: function scan complete steps=%zu candidates=%zu created=%zu skipped=%zu no_segment=%zu",
+        "Rewind: function discovery analysis complete steps=%zu candidates=%zu created=%zu skipped=%zu no_segment=%zu",
         result.steps_scanned, result.candidates, result.created, result.skipped, result.no_segment
     );
   }
 
-  return make_status_update("Defined " + std::to_string(result.created) + " functions from trace");
+  return make_status_update("Defined " + std::to_string(result.created) + " functions from trace analysis");
+}
+
+model::ReplayUpdate RewindEngine::run_control_flow_edge_analysis(
+    const std::function<void(model::ReplayUpdate)>& progress
+) {
+  std::string error;
+  if (!ensure_session_ready(error)) {
+    return make_error_update(error);
+  }
+  if (!mapper_.has_primary_mapping()) {
+    return make_error_update("address mapper unavailable");
+  }
+  if (run_active_.load()) {
+    return make_error_update("pause playback before control flow edge analysis");
+  }
+
+  if (logger_) {
+    logger_->LogInfo("Rewind: scanning trace for control flow edge analysis");
+  }
+  if (progress) {
+    progress(make_status_update("Scanning trace for control flow edge analysis..."));
+  }
+
+  const uint64_t cancel_token = cancel_epoch_.load(std::memory_order_relaxed);
+  auto is_cancelled = [this, cancel_token]() { return cancel_epoch_.load(std::memory_order_relaxed) != cancel_token; };
+  auto progress_status = [&progress, this](const std::string& status) {
+    if (progress) {
+      progress(make_status_update(status));
+    }
+  };
+
+  const auto result = control_flow_analyzer_.add_control_flow_edges(
+      *session_, trace_index_, mapper_, view_, trace_path_, logger_, progress_status, is_cancelled
+  );
+  if (!result.error.empty()) {
+    if (result.error == "cancelled") {
+      return make_status_update("Cancelled");
+    }
+    return make_error_update(result.error);
+  }
+
+  if (logger_) {
+    logger_->LogInfo(
+        "Rewind: control flow edge analysis complete steps=%zu transitions=%zu edges=%zu added=%zu "
+        "skipped_no_branch=%zu skipped_no_mapping=%zu skipped_decode=%zu skipped_no_function=%zu "
+        "skipped_no_segment=%zu skipped_existing=%zu skipped_return_gap=%zu",
+        result.steps_scanned, result.transitions, result.edges_found, result.edges_added,
+        result.edges_skipped_no_branch, result.edges_skipped_no_mapping, result.edges_skipped_decode,
+        result.edges_skipped_no_function, result.edges_skipped_no_segment, result.edges_skipped_existing,
+        result.edges_skipped_return_gap
+    );
+  }
+
+  if (result.edges_found == 0) {
+    return make_status_update("No control flow edges found");
+  }
+  if (result.edges_added == 0) {
+    return make_status_update("No new control flow edges added");
+  }
+
+  return make_status_update("Added " + std::to_string(result.edges_added) + " control flow edges");
 }
 
 } // namespace binja::rewind::core::engine

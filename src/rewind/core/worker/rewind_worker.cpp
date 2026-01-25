@@ -185,10 +185,18 @@ void RewindWorker::set_reverse_history_size(size_t size) {
   enqueue([this, size]() { engine_.set_reverse_history_size(size); });
 }
 
-void RewindWorker::define_functions_from_trace() {
+void RewindWorker::run_function_discovery_analysis() {
   enqueue([this]() {
     auto final_update =
-        engine_.define_functions_from_trace([this](model::ReplayUpdate update) { post_update(std::move(update)); });
+        engine_.run_function_discovery_analysis([this](model::ReplayUpdate update) { post_update(std::move(update)); });
+    post_update(std::move(final_update));
+  });
+}
+
+void RewindWorker::run_control_flow_edge_analysis() {
+  enqueue([this]() {
+    auto final_update =
+        engine_.run_control_flow_edge_analysis([this](model::ReplayUpdate update) { post_update(std::move(update)); });
     post_update(std::move(final_update));
   });
 }

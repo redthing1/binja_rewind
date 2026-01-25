@@ -217,8 +217,11 @@ bool SidebarController::handle_action(const QString& action_name, const UIAction
   case binja::rewind::ui::ActionId::RunBackToHere:
     worker_->run_to_view_address(context.address, false);
     return true;
-  case binja::rewind::ui::ActionId::DefineFunctionsFromTrace:
-    worker_->define_functions_from_trace();
+  case binja::rewind::ui::ActionId::FunctionDiscoveryAnalysis:
+    worker_->run_function_discovery_analysis();
+    return true;
+  case binja::rewind::ui::ActionId::ControlFlowEdgeAnalysis:
+    worker_->run_control_flow_edge_analysis();
     return true;
   }
   return false;

@@ -11,12 +11,13 @@ namespace {
 struct decode_buffer {
   BinaryNinja::Ref<BinaryNinja::Architecture> arch;
   uint64_t view_address = 0;
+  uint64_t decode_address = 0;
   std::vector<uint8_t> bytes;
 };
 
 bool fetch_bytes(
     const BinaryNinja::Ref<BinaryNinja::BinaryView>& view, const mapping::AddressMapper* mapper, uint64_t trace_address,
-    decode_buffer& out, std::string& error
+    InstructionDecoder::instruction_mode mode, decode_buffer& out, std::string& error
 ) {
   error.clear();
   out = decode_buffer{};
@@ -57,10 +58,18 @@ bool fetch_bytes(
   out.view_address = *view_addr;
 
   uint64_t decode_addr = out.view_address;
+  if (mode.mode_valid) {
+    if (mode.thumb) {
+      decode_addr |= 1ULL;
+    } else {
+      decode_addr &= ~1ULL;
+    }
+  }
   if (auto associated = arch->GetAssociatedArchitectureByAddress(decode_addr); associated) {
     arch = associated;
   }
   out.arch = arch;
+  out.decode_address = decode_addr;
   return true;
 }
 
@@ -77,16 +86,17 @@ bool extract_mnemonic(const std::vector<BinaryNinja::InstructionTextToken>& toke
 } // namespace
 
 bool InstructionDecoder::decode_instruction(
-    uint64_t trace_address, BinaryNinja::InstructionInfo& info, size_t& length, std::string& error
+    uint64_t trace_address, BinaryNinja::InstructionInfo& info, size_t& length, std::string& error,
+    instruction_mode mode
 ) const {
   decode_buffer buffer;
-  if (!fetch_bytes(view_, mapper_, trace_address, buffer, error)) {
+  if (!fetch_bytes(view_, mapper_, trace_address, mode, buffer, error)) {
     length = 0;
     return false;
   }
 
   BinaryNinja::InstructionInfo inst_info;
-  if (!buffer.arch->GetInstructionInfo(buffer.bytes.data(), buffer.view_address, buffer.bytes.size(), inst_info)) {
+  if (!buffer.arch->GetInstructionInfo(buffer.bytes.data(), buffer.decode_address, buffer.bytes.size(), inst_info)) {
     error = "failed to decode instruction info";
     return false;
   }
@@ -101,17 +111,29 @@ bool InstructionDecoder::decode_instruction(
 }
 
 bool InstructionDecoder::decode_instruction_semantics(
-    uint64_t trace_address, instruction_semantics& semantics, std::string& error
+    uint64_t trace_address, instruction_semantics& semantics, std::string& error, instruction_mode mode
 ) const {
-  semantics = instruction_semantics{};
+  instruction_detail detail{};
+  if (!decode_instruction_detail(trace_address, detail, error, mode)) {
+    semantics = instruction_semantics{};
+    return false;
+  }
+  semantics = detail.semantics;
+  return true;
+}
+
+bool InstructionDecoder::decode_instruction_detail(
+    uint64_t trace_address, instruction_detail& detail, std::string& error, instruction_mode mode
+) const {
+  detail = instruction_detail{};
 
   decode_buffer buffer;
-  if (!fetch_bytes(view_, mapper_, trace_address, buffer, error)) {
+  if (!fetch_bytes(view_, mapper_, trace_address, mode, buffer, error)) {
     return false;
   }
 
   BinaryNinja::InstructionInfo inst_info;
-  if (!buffer.arch->GetInstructionInfo(buffer.bytes.data(), buffer.view_address, buffer.bytes.size(), inst_info)) {
+  if (!buffer.arch->GetInstructionInfo(buffer.bytes.data(), buffer.decode_address, buffer.bytes.size(), inst_info)) {
     error = "failed to decode instruction info";
     return false;
   }
@@ -120,6 +142,7 @@ bool InstructionDecoder::decode_instruction_semantics(
     return false;
   }
 
+  instruction_semantics semantics{};
   semantics.length = inst_info.length;
   for (size_t i = 0; i < inst_info.branchCount; ++i) {
     switch (inst_info.branchType[i]) {
@@ -138,29 +161,26 @@ bool InstructionDecoder::decode_instruction_semantics(
     }
   }
 
-  if (semantics.is_call && semantics.is_return) {
-    return true;
+  if (!semantics.is_call || !semantics.is_return) {
+    size_t text_len = buffer.bytes.size();
+    std::vector<BinaryNinja::InstructionTextToken> tokens;
+    if (buffer.arch->GetInstructionText(buffer.bytes.data(), buffer.decode_address, text_len, tokens) &&
+        !tokens.empty()) {
+      std::string mnemonic;
+      if (extract_mnemonic(tokens, mnemonic)) {
+        const std::string arch_name = buffer.arch ? buffer.arch->GetName() : std::string();
+        if (!semantics.is_call && is_call_mnemonic(mnemonic, arch_name)) {
+          semantics.is_call = true;
+        }
+        if (!semantics.is_return && is_return_mnemonic(mnemonic, arch_name)) {
+          semantics.is_return = true;
+        }
+      }
+    }
   }
 
-  size_t text_len = buffer.bytes.size();
-  std::vector<BinaryNinja::InstructionTextToken> tokens;
-  if (!buffer.arch->GetInstructionText(buffer.bytes.data(), buffer.view_address, text_len, tokens) || tokens.empty()) {
-    return true;
-  }
-
-  std::string mnemonic;
-  if (!extract_mnemonic(tokens, mnemonic)) {
-    return true;
-  }
-
-  const std::string arch_name = buffer.arch ? buffer.arch->GetName() : std::string();
-  if (!semantics.is_call && is_call_mnemonic(mnemonic, arch_name)) {
-    semantics.is_call = true;
-  }
-  if (!semantics.is_return && is_return_mnemonic(mnemonic, arch_name)) {
-    semantics.is_return = true;
-  }
-
+  detail.info = inst_info;
+  detail.semantics = semantics;
   return true;
 }
 

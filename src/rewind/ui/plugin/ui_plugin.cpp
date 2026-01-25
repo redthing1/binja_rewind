@@ -16,17 +16,30 @@ BN_DECLARE_UI_ABI_VERSION
 BINARYNINJAPLUGIN bool UIPluginInit() {
   binja::rewind::ui::register_settings();
   binja::rewind::ui::RewindActionRouter::init();
-  UIAction::registerAction(binja::rewind::ui::kDefineFunctionsFromTraceSelectionAction);
+  UIAction::registerAction(binja::rewind::ui::kFunctionDiscoveryAnalysisSelectionAction);
   PluginCommand::Register(
-      binja::rewind::ui::kDefineFunctionsFromTraceCommand, "Define functions for executed trace code",
+      binja::rewind::ui::kFunctionDiscoveryAnalysisCommand, "Function discovery analysis for executed trace code",
       [](BinaryView* view) {
         binja::rewind::ui::dispatch_action_for_view(
-            binja::rewind::ui::action_name(binja::rewind::ui::ActionId::DefineFunctionsFromTrace), view
+            binja::rewind::ui::action_name(binja::rewind::ui::ActionId::FunctionDiscoveryAnalysis), view
         );
       },
       [](BinaryView* view) {
         return binja::rewind::ui::can_dispatch_action_for_view(
-            binja::rewind::ui::action_name(binja::rewind::ui::ActionId::DefineFunctionsFromTrace), view
+            binja::rewind::ui::action_name(binja::rewind::ui::ActionId::FunctionDiscoveryAnalysis), view
+        );
+      }
+  );
+  PluginCommand::Register(
+      binja::rewind::ui::kControlFlowEdgeAnalysisCommand, "Add trace-derived control flow edges as code references",
+      [](BinaryView* view) {
+        binja::rewind::ui::dispatch_action_for_view(
+            binja::rewind::ui::action_name(binja::rewind::ui::ActionId::ControlFlowEdgeAnalysis), view
+        );
+      },
+      [](BinaryView* view) {
+        return binja::rewind::ui::can_dispatch_action_for_view(
+            binja::rewind::ui::action_name(binja::rewind::ui::ActionId::ControlFlowEdgeAnalysis), view
         );
       }
   );
