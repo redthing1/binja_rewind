@@ -4,30 +4,115 @@
 #include <algorithm>
 #include <filesystem>
 #include <limits>
+#include <unordered_map>
 #include <vector>
 
-#include "w1base/arch_spec.hpp"
-#include "w1rewind/format/trace_format.hpp"
+#include "rewind/core/decode/trace_mode.hpp"
 #include "w1rewind/trace/trace_reader.hpp"
 
 namespace binja::rewind::core::engine {
 
 namespace {
 
-decode::InstructionDecoder::instruction_mode instruction_mode_from_step(const w1::rewind::flow_step& step) {
-  decode::InstructionDecoder::instruction_mode mode{};
-  if (step.is_block) {
-    if ((step.flags & w1::rewind::trace_block_flag_mode_valid) != 0) {
-      mode.mode_valid = true;
-      mode.thumb = (step.flags & w1::rewind::trace_block_flag_thumb) != 0;
+decode::InstructionDecoder::instruction_mode instruction_mode_from_step(
+    const w1::rewind::replay_context& context, const w1::rewind::flow_step& step
+) {
+  return decode::instruction_mode_from_step(context, step);
+}
+
+std::string trace_arch_name(const w1::rewind::replay_context& context) {
+  if (!context.arch.has_value()) {
+    return {};
+  }
+  if (!context.arch->gdb_arch.empty()) {
+    return context.arch->gdb_arch;
+  }
+  return context.arch->arch_id;
+}
+
+std::vector<model::TraceModule> build_trace_modules(const w1::rewind::replay_context& context) {
+  std::unordered_map<uint64_t, const w1::rewind::image_record*> images_by_id;
+  images_by_id.reserve(context.images.size());
+  for (const auto& image : context.images) {
+    images_by_id.emplace(image.image_id, &image);
+  }
+
+  struct module_span {
+    uint64_t base = 0;
+    uint64_t end = 0;
+    uint32_t perms = 0;
+    std::string path;
+    bool has_mapping = false;
+  };
+
+  std::unordered_map<uint64_t, module_span> spans;
+  spans.reserve(context.mappings.size());
+
+  std::vector<model::TraceModule> modules;
+  modules.reserve(context.mappings.size());
+
+  for (const auto& mapping : context.mappings) {
+    if (mapping.size == 0) {
+      continue;
     }
-  } else {
-    if ((step.flags & w1::rewind::trace_inst_flag_mode_valid) != 0) {
-      mode.mode_valid = true;
-      mode.thumb = (step.flags & w1::rewind::trace_inst_flag_thumb) != 0;
+    if (mapping.kind != w1::rewind::mapping_event_kind::map) {
+      continue;
+    }
+    uint64_t end = mapping.base + mapping.size;
+    if (end < mapping.base) {
+      end = std::numeric_limits<uint64_t>::max();
+    }
+
+    if (mapping.image_id == 0) {
+      if (mapping.name.empty()) {
+        continue;
+      }
+      model::TraceModule info{};
+      info.path = mapping.name;
+      info.base = mapping.base;
+      info.size = mapping.size;
+      info.permissions = static_cast<uint32_t>(mapping.perms);
+      modules.push_back(std::move(info));
+      continue;
+    }
+
+    auto& span = spans[mapping.image_id];
+    if (!span.has_mapping) {
+      span.base = mapping.base;
+      span.end = end;
+      span.perms = static_cast<uint32_t>(mapping.perms);
+      span.has_mapping = true;
+    } else {
+      span.base = std::min(span.base, mapping.base);
+      span.end = std::max(span.end, end);
+      span.perms |= static_cast<uint32_t>(mapping.perms);
+    }
+
+    if (span.path.empty()) {
+      if (!mapping.name.empty()) {
+        span.path = mapping.name;
+      } else if (auto it = images_by_id.find(mapping.image_id); it != images_by_id.end()) {
+        const auto& image = *it->second;
+        span.path = image.path.empty() ? image.name : image.path;
+      }
     }
   }
-  return mode;
+
+  for (const auto& [image_id, span] : spans) {
+    (void) image_id;
+    if (!span.has_mapping) {
+      continue;
+    }
+    model::TraceModule info{};
+    info.path = span.path;
+    info.base = span.base;
+    info.size = span.end > span.base ? (span.end - span.base) : 0;
+    info.permissions = span.perms;
+    modules.push_back(std::move(info));
+  }
+
+  std::sort(modules.begin(), modules.end(), [](const auto& left, const auto& right) { return left.base < right.base; });
+  return modules;
 }
 
 } // namespace
@@ -127,37 +212,30 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
     logger_->LogInfo("Rewind: loading trace '%s'", path.c_str());
   }
 
-  const bool has_register_names = !context.register_names.empty();
-  const bool has_register_specs = !context.register_specs.empty();
-  const bool has_registers = has_register_names && has_register_specs;
-  auto features = context.features();
+  const bool has_register_names = !context.default_register_names.empty();
+  const bool has_register_specs = !context.default_registers.empty();
+  const bool has_register_defs = has_register_names && has_register_specs;
+  const auto& features = context.features;
+  const bool has_register_data = features.has_reg_writes || features.has_snapshots;
+  const bool track_registers = has_register_defs && has_register_data;
+  const bool has_memory_data = features.has_mem_access || features.has_snapshots;
 
   trace_summary_ = model::TraceSummary{};
   trace_summary_.trace_version = context.header.version;
-  trace_summary_.arch = std::string(w1::arch::gdb_arch_name(context.header.arch));
-  if (context.target_info.has_value()) {
-    trace_summary_.os = context.target_info->os;
-    trace_summary_.abi = context.target_info->abi;
-    trace_summary_.cpu = context.target_info->cpu;
+  trace_summary_.arch = trace_arch_name(context);
+  if (context.environment.has_value()) {
+    trace_summary_.os = context.environment->os_id;
+    trace_summary_.abi = context.environment->abi;
+    trace_summary_.cpu = context.environment->cpu;
   }
-  trace_summary_.has_blocks = features.has_blocks;
-  trace_summary_.has_registers = features.has_registers;
-  trace_summary_.has_memory_access = features.has_memory_access;
-  trace_summary_.has_memory_values = features.has_memory_values;
-  trace_summary_.has_stack_snapshot = features.has_stack_snapshot;
+  trace_summary_.has_blocks = context.has_block_flow();
+  trace_summary_.has_registers = track_registers;
+  trace_summary_.has_memory_access = features.has_mem_access;
+  trace_summary_.has_memory_values = has_memory_data;
+  trace_summary_.has_stack_snapshot = features.has_snapshots;
   trace_summary_.thread_count = context.threads.size();
-  trace_summary_.module_count = context.modules.size();
-
-  trace_modules_.clear();
-  trace_modules_.reserve(context.modules.size());
-  for (const auto& module : context.modules) {
-    model::TraceModule info{};
-    info.path = module.path;
-    info.base = module.base;
-    info.size = module.size;
-    info.permissions = static_cast<uint32_t>(module.permissions);
-    trace_modules_.push_back(std::move(info));
-  }
+  trace_modules_ = build_trace_modules(context);
+  trace_summary_.module_count = trace_modules_.size();
   trace_info_dirty_ = true;
 
   w1::rewind::trace_index index;
@@ -179,8 +257,9 @@ bool RewindEngine::open_trace(const std::string& path, std::string& error, std::
   config.index = trace_index_;
   config.context = std::move(context);
   config.history_size = 4096;
-  config.track_registers = has_registers;
-  config.track_memory = has_registers && features.track_memory;
+  config.track_registers = track_registers;
+  config.track_memory = has_memory_data;
+  config.track_mappings = features.has_mapping_events;
   config.block_decoder = &block_decoder_;
 
   session_.emplace(config);
@@ -303,7 +382,7 @@ bool RewindEngine::seek_to_address(uint64_t trace_address, bool forward, std::st
   }
 
   const auto& context = session_->context();
-  if (context.has_blocks() && current_step_.block_id != 0) {
+  if (context.has_block_flow() && current_step_.block_id != 0) {
     auto it = context.blocks_by_id.find(current_step_.block_id);
     if (it != context.blocks_by_id.end()) {
       const uint64_t block_start = it->second.address;
@@ -568,7 +647,7 @@ model::ReplayUpdate RewindEngine::step_over() {
 
   decode::InstructionDecoder::instruction_semantics semantics{};
   if (!instruction_decoder_.decode_instruction_semantics(
-          current_step_.address, semantics, error, instruction_mode_from_step(current_step_)
+          current_step_.address, semantics, error, instruction_mode_from_step(session_->context(), current_step_)
       )) {
     if (!step_forward(error)) {
       return make_error_update(error);
@@ -613,7 +692,7 @@ model::ReplayUpdate RewindEngine::step_out() {
 
   decode::InstructionDecoder::instruction_semantics semantics{};
   if (instruction_decoder_.decode_instruction_semantics(
-          current_step_.address, semantics, error, instruction_mode_from_step(current_step_)
+          current_step_.address, semantics, error, instruction_mode_from_step(session_->context(), current_step_)
       ) &&
       semantics.is_return) {
     if (!step_forward(error)) {
@@ -635,7 +714,8 @@ model::ReplayUpdate RewindEngine::step_out() {
     decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
     if (instruction_decoder_.decode_instruction_semantics(
-            current_step_.address, step_semantics, decode_error, instruction_mode_from_step(current_step_)
+            current_step_.address, step_semantics, decode_error,
+            instruction_mode_from_step(session_->context(), current_step_)
         )) {
       if (step_semantics.is_call) {
         depth++;
@@ -681,7 +761,7 @@ model::ReplayUpdate RewindEngine::step_over_backward() {
 
   decode::InstructionDecoder::instruction_semantics semantics{};
   if (!instruction_decoder_.decode_instruction_semantics(
-          current_step_.address, semantics, error, instruction_mode_from_step(current_step_)
+          current_step_.address, semantics, error, instruction_mode_from_step(session_->context(), current_step_)
       )) {
     return make_status_update("Stepped back");
   }
@@ -707,7 +787,8 @@ model::ReplayUpdate RewindEngine::step_over_backward() {
     decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
     if (instruction_decoder_.decode_instruction_semantics(
-            current_step_.address, step_semantics, decode_error, instruction_mode_from_step(current_step_)
+            current_step_.address, step_semantics, decode_error,
+            instruction_mode_from_step(session_->context(), current_step_)
         )) {
       if (step_semantics.is_return) {
         depth++;
@@ -757,7 +838,8 @@ model::ReplayUpdate RewindEngine::step_out_backward() {
     decode::InstructionDecoder::instruction_semantics step_semantics{};
     std::string decode_error;
     if (instruction_decoder_.decode_instruction_semantics(
-            current_step_.address, step_semantics, decode_error, instruction_mode_from_step(current_step_)
+            current_step_.address, step_semantics, decode_error,
+            instruction_mode_from_step(session_->context(), current_step_)
         )) {
       if (step_semantics.is_return) {
         depth++;

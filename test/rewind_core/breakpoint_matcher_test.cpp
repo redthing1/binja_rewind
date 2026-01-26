@@ -33,7 +33,7 @@ public:
 
 w1::rewind::replay_context make_context() {
   w1::rewind::replay_context ctx;
-  ctx.header.flags = w1::rewind::trace_flag_blocks;
+  ctx.features.has_block_exec = true;
   w1::rewind::block_definition_record def{};
   def.block_id = 1;
   def.address = 0x1000;

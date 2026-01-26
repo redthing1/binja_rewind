@@ -147,6 +147,8 @@ if(BINJA_REWIND_BUILD_TESTS)
     target_link_libraries(rewind_core_test
         PRIVATE
             rewind_core_lib
+            w1::rewind::record
+            w1::base
     )
 
     set_target_properties(rewind_core_test PROPERTIES

@@ -15,7 +15,7 @@ breakpoint_match breakpoint_matcher::match_in_current_block(
   if (breakpoints.empty()) {
     return result;
   }
-  if (!context.has_blocks()) {
+  if (!context.has_block_flow()) {
     return result;
   }
   if (current_step.block_id == 0) {
@@ -119,7 +119,7 @@ breakpoint_match breakpoint_matcher::match_step(
     return result;
   }
 
-  if (!context.has_blocks()) {
+  if (!context.has_block_flow()) {
     if (breakpoints.find(step.address) != breakpoints.end() && !is_skipped(skip, step.sequence, step.address)) {
       result.kind = breakpoint_match_kind::exact;
       result.address = step.address;

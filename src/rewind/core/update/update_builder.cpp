@@ -31,7 +31,7 @@ void UpdateBuilder::fill_registers(const UpdateContext& ctx, model::ReplayUpdate
     entry.name = names[i];
     if (values[i].has_value()) {
       entry.known = true;
-      unsigned width = specs[i].bits ? static_cast<unsigned>((specs[i].bits + 3) / 4) : 16;
+      unsigned width = specs[i].bit_size ? static_cast<unsigned>((specs[i].bit_size + 3) / 4) : 16;
       if (width == 0) {
         width = 1;
       }
@@ -71,7 +71,7 @@ bool UpdateBuilder::sample_gradient(const UpdateContext& ctx, GradientSample& sa
   w1::rewind::replay_state state;
   w1::rewind::replay_state_applier applier(ctx.session->context());
   w1::rewind::stateful_flow_cursor stateful(cursor, applier, state);
-  stateful.configure(ctx.session->context(), false, false);
+  stateful.configure(ctx.session->context(), false, false, nullptr);
 
   if (!cursor.seek(ctx.current_thread, ctx.current_step->sequence)) {
     return false;
@@ -95,7 +95,7 @@ bool UpdateBuilder::sample_gradient(const UpdateContext& ctx, GradientSample& sa
     sample.past.push_back(step.address);
   }
 
-  stateful.configure(ctx.session->context(), false, false);
+  stateful.configure(ctx.session->context(), false, false, nullptr);
   if (!cursor.seek(ctx.current_thread, ctx.current_step->sequence)) {
     return true;
   }

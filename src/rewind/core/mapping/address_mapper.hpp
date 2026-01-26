@@ -39,6 +39,7 @@ private:
     uint64_t size = 0;
     std::string path;
     std::string basename;
+    bool is_main = false;
   };
 
   static bool in_range(uint64_t base, uint64_t size, uint64_t address, uint64_t length);

@@ -6,6 +6,7 @@
 
 #include "rewind/core/engine/run_loop.hpp"
 #include "w1base/arch_spec.hpp"
+#include "w1rewind/record/trace_builder.hpp"
 #include "w1rewind/replay/flow_cursor.hpp"
 #include "w1rewind/replay/replay_context.hpp"
 #include "w1rewind/trace/trace_file_writer.hpp"
@@ -23,6 +24,55 @@ struct trace_bundle {
   std::shared_ptr<w1::rewind::trace_reader> stream;
 };
 
+w1::rewind::endian to_endian(w1::arch::byte_order order) {
+  switch (order) {
+  case w1::arch::byte_order::little:
+    return w1::rewind::endian::little;
+  case w1::arch::byte_order::big:
+    return w1::rewind::endian::big;
+  default:
+    return w1::rewind::endian::unknown;
+  }
+}
+
+w1::rewind::file_header make_header() {
+  w1::rewind::file_header header{};
+  header.trace_uuid[0] = 1;
+  return header;
+}
+
+w1::rewind::arch_descriptor_record make_arch_descriptor(const w1::arch::arch_spec& arch) {
+  w1::rewind::arch_descriptor_record record{};
+  record.arch_id = "x86_64";
+  record.byte_order = to_endian(arch.arch_byte_order);
+  uint16_t bits = static_cast<uint16_t>(arch.pointer_bits != 0 ? arch.pointer_bits : 64);
+  record.pointer_bits = bits;
+  record.address_bits = bits;
+  record.gdb_arch = std::string(w1::arch::gdb_arch_name(arch));
+  record.gdb_feature = std::string(w1::arch::gdb_feature_name(arch));
+  record.modes.push_back({0, record.arch_id});
+  return record;
+}
+
+w1::rewind::environment_record make_environment() {
+  w1::rewind::environment_record env{};
+  env.os_id = "test";
+  env.abi = "test";
+  env.cpu = "test";
+  env.hostname = "test";
+  env.pid = 1;
+  return env;
+}
+
+w1::rewind::address_space_record make_address_space(const w1::arch::arch_spec& arch) {
+  w1::rewind::address_space_record space{};
+  space.space_id = 0;
+  space.name = "default";
+  space.address_bits = static_cast<uint16_t>(arch.pointer_bits != 0 ? arch.pointer_bits : 64);
+  space.byte_order = to_endian(arch.arch_byte_order);
+  return space;
+}
+
 trace_bundle build_trace(const char* name, uint64_t count) {
   namespace fs = std::filesystem;
   trace_bundle out;
@@ -31,7 +81,7 @@ trace_bundle build_trace(const char* name, uint64_t count) {
 
   out.writer_config.path = out.trace_path.string();
   out.writer_config.log = redlog::get_logger("test.rewind_core.run_loop");
-  out.writer_config.chunk_size = 64;
+  out.writer_config.chunk_size = 512;
 
   auto writer = w1::rewind::make_trace_file_writer(out.writer_config);
   REQUIRE(writer);
@@ -41,54 +91,28 @@ trace_bundle build_trace(const char* name, uint64_t count) {
   std::string arch_error;
   REQUIRE(w1::arch::parse_arch_spec("x86_64", arch, arch_error));
 
-  w1::rewind::trace_header header{};
-  header.arch = arch;
-  header.flags = w1::rewind::trace_flag_instructions;
-  REQUIRE(writer->write_header(header));
+  w1::rewind::trace_builder_config builder_config{writer, out.writer_config.log};
+  w1::rewind::trace_builder builder(builder_config);
 
-  w1::rewind::target_info_record target{};
-  target.os = "test";
-  target.abi = "test";
-  target.cpu = "test";
-  REQUIRE(writer->write_target_info(target));
+  auto header = make_header();
+  REQUIRE(builder.begin_trace(header));
+  auto arch_desc = make_arch_descriptor(arch);
+  REQUIRE(builder.emit_arch_descriptor_checked(arch_desc));
+  auto env = make_environment();
+  REQUIRE(builder.emit_environment_checked(env));
+  auto space = make_address_space(arch);
+  REQUIRE(builder.emit_address_space(space));
 
-  w1::rewind::target_environment_record env{};
-  env.os_version = "1.0";
-  env.os_build = "test";
-  env.os_kernel = "test";
-  env.hostname = "test";
-  env.pid = 1;
-  env.addressing_bits = 48;
-  env.low_mem_addressing_bits = 48;
-  env.high_mem_addressing_bits = 48;
-  REQUIRE(writer->write_target_environment(env));
-
-  w1::rewind::register_spec_record regs{};
-  REQUIRE(writer->write_register_spec(regs));
-
-  w1::rewind::module_table_record modules{};
-  REQUIRE(writer->write_module_table(modules));
-
-  w1::rewind::thread_start_record start{};
-  start.thread_id = 1;
-  start.name = "thread1";
-  REQUIRE(writer->write_thread_start(start));
+  REQUIRE(builder.begin_thread(1, "thread1"));
 
   for (uint64_t i = 0; i < count; ++i) {
-    w1::rewind::instruction_record inst{};
-    inst.thread_id = 1;
-    inst.sequence = i;
-    inst.address = 0x1000 + i * 4;
-    inst.size = 4;
-    inst.flags = 0;
-    REQUIRE(writer->write_instruction(inst));
+    uint64_t sequence = 0;
+    REQUIRE(builder.emit_instruction(1, 0x1000 + i * 4, 4, space.space_id, 0, sequence));
   }
 
-  w1::rewind::thread_end_record end{};
-  end.thread_id = 1;
-  REQUIRE(writer->write_thread_end(end));
+  REQUIRE(builder.end_thread(1));
 
-  writer->flush();
+  builder.flush();
   writer->close();
 
   w1::rewind::trace_index_options options;
@@ -120,7 +144,7 @@ trace_bundle build_block_trace(const char* name) {
 
   out.writer_config.path = out.trace_path.string();
   out.writer_config.log = redlog::get_logger("test.rewind_core.run_loop");
-  out.writer_config.chunk_size = 64;
+  out.writer_config.chunk_size = 512;
 
   auto writer = w1::rewind::make_trace_file_writer(out.writer_config);
   REQUIRE(writer);
@@ -130,68 +154,27 @@ trace_bundle build_block_trace(const char* name) {
   std::string arch_error;
   REQUIRE(w1::arch::parse_arch_spec("x86_64", arch, arch_error));
 
-  w1::rewind::trace_header header{};
-  header.arch = arch;
-  header.flags = w1::rewind::trace_flag_blocks;
-  REQUIRE(writer->write_header(header));
+  w1::rewind::trace_builder_config builder_config{writer, out.writer_config.log};
+  w1::rewind::trace_builder builder(builder_config);
 
-  w1::rewind::target_info_record target{};
-  target.os = "test";
-  target.abi = "test";
-  target.cpu = "test";
-  REQUIRE(writer->write_target_info(target));
+  auto header = make_header();
+  REQUIRE(builder.begin_trace(header));
+  auto arch_desc = make_arch_descriptor(arch);
+  REQUIRE(builder.emit_arch_descriptor_checked(arch_desc));
+  auto env = make_environment();
+  REQUIRE(builder.emit_environment_checked(env));
+  auto space = make_address_space(arch);
+  REQUIRE(builder.emit_address_space(space));
 
-  w1::rewind::target_environment_record env{};
-  env.os_version = "1.0";
-  env.os_build = "test";
-  env.os_kernel = "test";
-  env.hostname = "test";
-  env.pid = 1;
-  env.addressing_bits = 48;
-  env.low_mem_addressing_bits = 48;
-  env.high_mem_addressing_bits = 48;
-  REQUIRE(writer->write_target_environment(env));
+  REQUIRE(builder.begin_thread(1, "thread1"));
 
-  w1::rewind::register_spec_record regs{};
-  REQUIRE(writer->write_register_spec(regs));
+  uint64_t sequence = 0;
+  REQUIRE(builder.emit_block(1, 0x1000, 4, space.space_id, 0, sequence));
+  REQUIRE(builder.emit_block(1, 0x2000, 4, space.space_id, 0, sequence));
 
-  w1::rewind::module_table_record modules{};
-  REQUIRE(writer->write_module_table(modules));
+  REQUIRE(builder.end_thread(1));
 
-  w1::rewind::thread_start_record start{};
-  start.thread_id = 1;
-  start.name = "thread1";
-  REQUIRE(writer->write_thread_start(start));
-
-  w1::rewind::block_definition_record def1{};
-  def1.block_id = 1;
-  def1.address = 0x1000;
-  def1.size = 4;
-  REQUIRE(writer->write_block_definition(def1));
-
-  w1::rewind::block_definition_record def2{};
-  def2.block_id = 2;
-  def2.address = 0x2000;
-  def2.size = 4;
-  REQUIRE(writer->write_block_definition(def2));
-
-  w1::rewind::block_exec_record exec1{};
-  exec1.thread_id = 1;
-  exec1.sequence = 0;
-  exec1.block_id = 1;
-  REQUIRE(writer->write_block_exec(exec1));
-
-  w1::rewind::block_exec_record exec2{};
-  exec2.thread_id = 1;
-  exec2.sequence = 1;
-  exec2.block_id = 2;
-  REQUIRE(writer->write_block_exec(exec2));
-
-  w1::rewind::thread_end_record end{};
-  end.thread_id = 1;
-  REQUIRE(writer->write_thread_end(end));
-
-  writer->flush();
+  builder.flush();
   writer->close();
 
   w1::rewind::trace_index_options options;

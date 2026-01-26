@@ -1,6 +1,8 @@
 #include "rewind/core/mapping/address_mapper.hpp"
 
 #include <algorithm>
+#include <limits>
+#include <unordered_map>
 
 #include "rewind/core/mapping/path_utils.hpp"
 
@@ -45,13 +47,85 @@ bool AddressMapper::configure(
     return false;
   }
 
-  modules_.reserve(context.modules.size());
-  for (const auto& module : context.modules) {
+  std::unordered_map<uint64_t, const w1::rewind::image_record*> images_by_id;
+  images_by_id.reserve(context.images.size());
+  for (const auto& image : context.images) {
+    images_by_id.emplace(image.image_id, &image);
+  }
+
+  struct module_span {
+    uint64_t base = 0;
+    uint64_t end = 0;
+    std::string path;
+    bool is_main = false;
+    bool has_mapping = false;
+  };
+
+  std::unordered_map<uint64_t, module_span> spans;
+  spans.reserve(context.mappings.size());
+
+  modules_.reserve(context.mappings.size());
+  for (const auto& mapping : context.mappings) {
+    if (mapping.size == 0) {
+      continue;
+    }
+    if (mapping.kind != w1::rewind::mapping_event_kind::map) {
+      continue;
+    }
+    uint64_t end = mapping.base + mapping.size;
+    if (end < mapping.base) {
+      end = std::numeric_limits<uint64_t>::max();
+    }
+
+    if (mapping.image_id == 0) {
+      if (mapping.name.empty()) {
+        continue;
+      }
+      ModuleInfo info{};
+      info.base = mapping.base;
+      info.size = mapping.size;
+      info.path = mapping.name;
+      info.basename = path_basename(info.path);
+      modules_.push_back(std::move(info));
+      continue;
+    }
+
+    auto& span = spans[mapping.image_id];
+    if (!span.has_mapping) {
+      span.base = mapping.base;
+      span.end = end;
+      span.has_mapping = true;
+    } else {
+      span.base = std::min(span.base, mapping.base);
+      span.end = std::max(span.end, end);
+    }
+
+    if (span.path.empty()) {
+      if (!mapping.name.empty()) {
+        span.path = mapping.name;
+      } else if (auto it = images_by_id.find(mapping.image_id); it != images_by_id.end()) {
+        const auto& image = *it->second;
+        span.path = image.path.empty() ? image.name : image.path;
+        span.is_main = (image.flags & w1::rewind::image_flag_main) != 0;
+      }
+    } else if (!span.is_main) {
+      if (auto it = images_by_id.find(mapping.image_id); it != images_by_id.end()) {
+        span.is_main = (it->second->flags & w1::rewind::image_flag_main) != 0;
+      }
+    }
+  }
+
+  for (const auto& [image_id, span] : spans) {
+    (void) image_id;
+    if (!span.has_mapping) {
+      continue;
+    }
     ModuleInfo info{};
-    info.base = module.base;
-    info.size = module.size;
-    info.path = module.path;
-    info.basename = path_basename(module.path);
+    info.base = span.base;
+    info.size = span.end > span.base ? (span.end - span.base) : 0;
+    info.path = span.path;
+    info.basename = path_basename(info.path);
+    info.is_main = span.is_main;
     modules_.push_back(std::move(info));
   }
 
@@ -85,6 +159,9 @@ bool AddressMapper::configure(
 
   auto score_module = [&](const ModuleInfo& module) -> int {
     int score = 0;
+    if (module.is_main) {
+      score = std::max(score, 1);
+    }
     if (!view_path.empty() && module.path == view_path) {
       score = 4;
     }

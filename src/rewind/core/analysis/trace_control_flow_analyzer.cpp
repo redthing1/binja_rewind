@@ -6,6 +6,7 @@
 #include <unordered_set>
 
 #include "rewind/core/decode/bn_block_decoder.hpp"
+#include "rewind/core/decode/trace_mode.hpp"
 #include "w1rewind/format/trace_format.hpp"
 #include "w1rewind/replay/flow_cursor.hpp"
 #include "w1rewind/trace/trace_reader.hpp"
@@ -97,22 +98,10 @@ InstructionDecoder::instruction_mode mode_from_bits(uint8_t bits) {
   return mode;
 }
 
-InstructionDecoder::instruction_mode mode_from_instruction_flags(uint32_t flags) {
-  InstructionDecoder::instruction_mode mode{};
-  if ((flags & w1::rewind::trace_inst_flag_mode_valid) != 0) {
-    mode.mode_valid = true;
-    mode.thumb = (flags & w1::rewind::trace_inst_flag_thumb) != 0;
-  }
-  return mode;
-}
-
-InstructionDecoder::instruction_mode mode_from_block_flags(uint32_t flags) {
-  InstructionDecoder::instruction_mode mode{};
-  if ((flags & w1::rewind::trace_block_flag_mode_valid) != 0) {
-    mode.mode_valid = true;
-    mode.thumb = (flags & w1::rewind::trace_block_flag_thumb) != 0;
-  }
-  return mode;
+InstructionDecoder::instruction_mode mode_from_step(
+    const w1::rewind::replay_context& context, const w1::rewind::flow_step& step
+) {
+  return decode::instruction_mode_from_step(context, step);
 }
 
 branch_summary summarize_branches(const InstructionDecoder::instruction_detail& detail) {
@@ -276,7 +265,7 @@ ControlFlowEdgeResult TraceControlFlowAnalyzer::add_control_flow_edges(
               !decoded_block.instructions.empty()) {
             ++result.blocks_decoded;
             auto& last_inst = decoded_block.instructions.back();
-            InstructionDecoder::instruction_mode mode = mode_from_block_flags(from_step.flags);
+            InstructionDecoder::instruction_mode mode = mode_from_step(session.context(), from_step);
             if (fill_branch_info(instruction_decoder, last_inst.address, mode, info, decode_error)) {
               info.length = last_inst.size ? last_inst.size : info.length;
               decoded = true;
@@ -285,12 +274,12 @@ ControlFlowEdgeResult TraceControlFlowAnalyzer::add_control_flow_edges(
           if (!decoded) {
             info.ok = false;
             info.trace_address = from_step.address;
-            info.mode = mode_from_block_flags(from_step.flags);
+            info.mode = mode_from_step(session.context(), from_step);
           }
           block_cache.emplace(from_step.block_id, info);
         }
       } else {
-        InstructionDecoder::instruction_mode mode = mode_from_instruction_flags(from_step.flags);
+        InstructionDecoder::instruction_mode mode = mode_from_step(session.context(), from_step);
         instruction_key key{from_step.address, mode_bits(mode)};
         auto it = instruction_cache.find(key);
         if (it != instruction_cache.end()) {

@@ -1,5 +1,7 @@
 #include "rewind/core/decode/bn_block_decoder.hpp"
 
+#include "rewind/core/decode/trace_mode.hpp"
+
 #include <vector>
 
 namespace binja::rewind::core::decode {
@@ -37,8 +39,9 @@ bool BnBlockDecoder::decode_block(
   }
 
   uint64_t decode_addr = *view_addr;
-  if ((flow.flags & w1::rewind::trace_block_flag_mode_valid) != 0) {
-    if ((flow.flags & w1::rewind::trace_block_flag_thumb) != 0) {
+  auto mode = instruction_mode_from_step(context, flow);
+  if (mode.mode_valid) {
+    if (mode.thumb) {
       decode_addr |= 1ULL;
     } else {
       decode_addr &= ~1ULL;
